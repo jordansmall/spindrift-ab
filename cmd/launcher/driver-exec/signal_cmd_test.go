@@ -506,6 +506,27 @@ func TestRunSignal_IssueIntentDedupTerms(t *testing.T) {
 	})
 }
 
+// TestRunSignal_IssueIntentStrayPositionalRejected pins that a leftover
+// positional is a usage failure: Go's flag package stops at the first non-flag,
+// so without the check the -dedup after "stray" would vanish silently.
+func TestRunSignal_IssueIntentStrayPositionalRejected(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "one body", "issue-intent", "-title", "one", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("issue-intent exit = %d, want 1 (out=%q)", rc, out)
+		}
+		want := `signal issue-intent rejected (usage): unexpected argument "stray"; a multi-word value needs quoting`
+		if got := lastNonEmptyLine(out); got != want {
+			t.Fatalf("last line = %q, want %q (full out=%q)", got, want, out)
+		}
+		if n := len(srv.buf.IssueIntents()); n != 0 {
+			t.Fatalf("issue intents = %d, want 0 after a rejected verb", n)
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentClassAndConcurrence pins -class/-concurrence
 // (issue #3880): both are optional, and each lands in the buffered intent's
 // matching field unaltered.
