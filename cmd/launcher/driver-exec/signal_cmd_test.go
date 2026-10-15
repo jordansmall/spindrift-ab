@@ -1276,3 +1276,16 @@ func TestRawFields(t *testing.T) {
 		rawFields(badWire{Count: 1})
 	})
 }
+
+func TestSignalRejectsStrayPositional(t *testing.T) {
+	rc, out := runVerb(t, "body", "issue-intent", "-title", "t", "-type", "bug", "stray",
+		"-dedup", "a.go:Sym", "-patch-file", "/nonexistent")
+	if rc != 1 {
+		t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+	}
+	for _, want := range []string{"rejected (usage)", `"stray"`, "quote"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output = %q, want it to contain %q", out, want)
+		}
+	}
+}
