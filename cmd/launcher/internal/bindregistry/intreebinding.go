@@ -134,8 +134,45 @@ func asciiLower(s string) string {
 	return string(b)
 }
 
-// replaceAllFold is strings.ReplaceAll with ASCII case-insensitive matching.
-// Bytes outside a matched span, such as an uppercase path, stay untouched.
+// hostEndsAt reports whether a host ending just before folded[end] is the whole
+// host. A route's host must not match a prefix of a longer host or the same host
+// on another port, since FoldHost keeps ports distinct. This is a deny-list on
+// purpose: YAML flow ',' ']' '}' end a URL and must stay boundaries.
+func hostEndsAt(folded string, end int) bool {
+	if end >= len(folded) {
+		return true
+	}
+	c := folded[end]
+	switch {
+	case 'a' <= c && c <= 'z', '0' <= c && c <= '9':
+		return false
+	case strings.IndexByte(".-_%@~+!$*;=&", c) >= 0:
+		return false
+	case c == ':':
+		return !(end+1 < len(folded) && '0' <= folded[end+1] && folded[end+1] <= '9')
+	}
+	return true
+}
+
+// indexFold returns the first index >= from where foldedOld, a lowered scheme
+// plus host, matches at a host boundary, or -1.
+func indexFold(folded, foldedOld string, from int) int {
+	for {
+		i := strings.Index(folded[from:], foldedOld)
+		if i < 0 {
+			return -1
+		}
+		i += from
+		if hostEndsAt(folded, i+len(foldedOld)) {
+			return i
+		}
+		from = i + 1
+	}
+}
+
+// replaceAllFold is strings.ReplaceAll with ASCII case-insensitive matching,
+// limited to whole-host matches (see hostEndsAt). Bytes outside a matched span,
+// such as an uppercase path, stay untouched.
 // Relies on asciiLower being length-preserving (ASCII-only) so indexes into the
 // folded copy align with s; old must be non-empty (callers prepend a scheme).
 func replaceAllFold(s, old, repl string) string {
@@ -143,11 +180,10 @@ func replaceAllFold(s, old, repl string) string {
 	var out strings.Builder
 	last := 0
 	for {
-		i := strings.Index(foldedS[last:], foldedOld)
+		i := indexFold(foldedS, foldedOld, last)
 		if i < 0 {
 			break
 		}
-		i += last
 		out.WriteString(s[last:i])
 		out.WriteString(repl)
 		last = i + len(old)
@@ -249,7 +285,7 @@ func ApplyInTreeBinding(repoDir string, row ecosystem.Row, rewrites []HostRewrit
 	anyHostPresent := false
 	for _, rw := range rewrites {
 		host := FoldHost(rw.UpstreamHost)
-		if strings.Contains(foldedContent, "https://"+host) || strings.Contains(foldedContent, "http://"+host) {
+		if indexFold(foldedContent, "https://"+host, 0) >= 0 || indexFold(foldedContent, "http://"+host, 0) >= 0 {
 			anyHostPresent = true
 			break
 		}

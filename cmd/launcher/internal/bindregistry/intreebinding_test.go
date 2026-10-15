@@ -458,6 +458,131 @@ func TestApplyInTreeBindingOverlappingHostsRewriteLongestFirst(t *testing.T) {
 	}
 }
 
+// A route's host must match only as a whole host: "nexus.corp" is a prefix of
+// both "nexus.corp:8081" and "nexus.corp.mirror.net", and neither is the route's
+// host. With no exact-host line present the gate must no-op, leaving both
+// lines and the skip-worktree bit untouched.
+func TestApplyInTreeBindingSingleRouteRespectsHostBoundary(t *testing.T) {
+	dir := newTestRepo(t)
+	content := "@a:registry=https://nexus.corp:8081/repository/npm/\n@b:registry=https://nexus.corp.mirror.net/npm/\n"
+	writeConfig(t, dir, npmBinding.InTreeConfigPath, content, true)
+
+	rewrites := []HostRewrite{{UpstreamHost: "nexus.corp", LocalURL: "http://127.0.0.1:27182/r0"}}
+	reason, err := ApplyInTreeBinding(dir, npmBinding, rewrites)
+	if err != nil {
+		t.Fatalf("ApplyInTreeBinding: %v", err)
+	}
+	if reason != ApplyNoopContent {
+		t.Errorf("reason = %v, want %v", reason, ApplyNoopContent)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, npmBinding.InTreeConfigPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Errorf("content changed unexpectedly: got %q, want %q", got, content)
+	}
+	if skipWorktreeSet(t, dir, npmBinding.InTreeConfigPath) {
+		t.Error("skip-worktree bit set, want clear when no route host matched")
+	}
+}
+
+// With an exact-host line alongside the port and suffix look-alikes, only the
+// exact line is rewritten; the other two stay byte-for-byte.
+func TestApplyInTreeBindingRewritesOnlyExactHostLine(t *testing.T) {
+	dir := newTestRepo(t)
+	content := "@a:registry=https://nexus.corp:8081/repository/npm/\n@b:registry=https://nexus.corp.mirror.net/npm/\nregistry=https://nexus.corp/repository/npm/\n"
+	writeConfig(t, dir, npmBinding.InTreeConfigPath, content, true)
+
+	rewrites := []HostRewrite{{UpstreamHost: "nexus.corp", LocalURL: "http://127.0.0.1:27182/r0"}}
+	reason, err := ApplyInTreeBinding(dir, npmBinding, rewrites)
+	if err != nil {
+		t.Fatalf("ApplyInTreeBinding: %v", err)
+	}
+	if reason != ApplyApplied {
+		t.Errorf("reason = %v, want %v", reason, ApplyApplied)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, npmBinding.InTreeConfigPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "@a:registry=https://nexus.corp:8081/repository/npm/\n@b:registry=https://nexus.corp.mirror.net/npm/\nregistry=http://127.0.0.1:27182/r0/repository/npm/\n"
+	if string(got) != want {
+		t.Errorf("rewritten content = %q, want %q", got, want)
+	}
+}
+
+// A look-alike route that matches nothing must not hold back a route that does:
+// nexus.corp has only a :8081 line, so its rewrite is skipped while other.corp's
+// exact line is still rewritten and the look-alike stays byte-for-byte.
+func TestApplyInTreeBindingLookAlikeRouteDoesNotBlockExactRoute(t *testing.T) {
+	dir := newTestRepo(t)
+	content := "@a:registry=https://nexus.corp:8081/repository/npm/\n@b:registry=https://other.corp/npm/\n"
+	writeConfig(t, dir, npmBinding.InTreeConfigPath, content, true)
+
+	rewrites := []HostRewrite{
+		{UpstreamHost: "nexus.corp", LocalURL: "http://127.0.0.1:27182/r0"},
+		{UpstreamHost: "other.corp", LocalURL: "http://127.0.0.1:27182/r1"},
+	}
+	reason, err := ApplyInTreeBinding(dir, npmBinding, rewrites)
+	if err != nil {
+		t.Fatalf("ApplyInTreeBinding: %v", err)
+	}
+	if reason != ApplyApplied {
+		t.Errorf("reason = %v, want %v", reason, ApplyApplied)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, npmBinding.InTreeConfigPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "@a:registry=https://nexus.corp:8081/repository/npm/\n@b:registry=http://127.0.0.1:27182/r1/npm/\n"
+	if string(got) != want {
+		t.Errorf("rewritten content = %q, want %q", got, want)
+	}
+}
+
+func TestReplaceAllFoldHostBoundary(t *testing.T) {
+	const defaultOld = "https://nexus.corp"
+	const repl = "X"
+	cases := []struct {
+		name, old, in, want string
+	}{
+		{"end of input", "", "registry=https://nexus.corp", "registry=X"},
+		{"quote terminates host", "", `url = "https://nexus.corp"`, `url = "X"`},
+		{"comma terminates host", "", "[https://nexus.corp, x]", "[X, x]"},
+		{"flow-sequence close terminates host", "", "[https://nexus.corp]", "[X]"},
+		{"port rejected", "", "https://nexus.corp:8081/x", "https://nexus.corp:8081/x"},
+		{"colon without digit is a boundary", "", "https://nexus.corp:/x", "X:/x"},
+		{"dot suffix rejected", "", "https://nexus.corp.mirror.net/", "https://nexus.corp.mirror.net/"},
+		{"trailing-dot FQDN rejected", "", "https://nexus.corp./npm/", "https://nexus.corp./npm/"},
+		{"hyphen suffix rejected", "", "https://nexus.corp-old/", "https://nexus.corp-old/"},
+		{"underscore suffix rejected", "", "https://nexus.corp_x/", "https://nexus.corp_x/"},
+		{"percent suffix rejected", "", "https://nexus.corp%2e/", "https://nexus.corp%2e/"},
+		{"at-sign suffix rejected", "", "https://nexus.corp@evil/", "https://nexus.corp@evil/"},
+		{"digit suffix rejected", "", "https://nexus.corp2/", "https://nexus.corp2/"},
+		{"tilde suffix rejected", "", "https://nexus.corp~x/", "https://nexus.corp~x/"},
+		{"plus suffix rejected", "", "https://nexus.corp+x/", "https://nexus.corp+x/"},
+		{"port route rewritten at path", "https://nexus.corp:8443", "https://nexus.corp:8443/x", "X/x"},
+		{"port route rejected by longer port", "https://nexus.corp:8443", "https://nexus.corp:84432/x", "https://nexus.corp:84432/x"},
+		{"uppercase match", "", "HTTPS://NEXUS.CORP/x", "X/x"},
+		{"rewrites exact match among look-alikes", "", "a https://nexus.corp.x b https://nexus.corp/", "a https://nexus.corp.x b X/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			old := tc.old
+			if old == "" {
+				old = defaultOld
+			}
+			if got := replaceAllFold(tc.in, old, repl); got != tc.want {
+				t.Errorf("replaceAllFold(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 // The verb layer already checks the manifest for at least one route upstream
 // host before calling in, so an empty rewrites slice here is a contract
 // violation, not one of ApplyOutcome's operator-facing no-op cases (issue
