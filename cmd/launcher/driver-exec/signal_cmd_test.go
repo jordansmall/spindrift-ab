@@ -506,6 +506,49 @@ func TestRunSignal_IssueIntentDedupTerms(t *testing.T) {
 	})
 }
 
+// TestRunSignal_StrayPositionalRejected pins that a leftover positional token
+// before a flag is a usage failure naming that token, not silently dropped
+// along with the flags after it, on every verb. status takes no flags, so the
+// token after its stray is still unparsed and the rejection still holds.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	cases := []struct {
+		verb string
+		args []string
+	}{
+		{"comment", []string{"comment", "stray", "-body-file", "-"}},
+		{"pr-intent", []string{"pr-intent", "stray", "-title", "x"}},
+		{"issue-intent", []string{"issue-intent", "-title", "x", "-type", "bug", "stray", "-dedup", "a.go:Foo"}},
+		{"status", []string{"status", "stray", "-body-file", "-"}},
+	}
+	forEachTransport(t, func(t *testing.T, transport string) {
+		for _, tc := range cases {
+			t.Run(tc.verb, func(t *testing.T) {
+				srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+				rc, out := runVerb(t, "body", tc.args...)
+				if rc != 1 {
+					t.Fatalf("%s exit = %d, want 1 (out=%q)", tc.verb, rc, out)
+				}
+				if want := `signal ` + tc.verb + ` rejected (usage): unexpected argument "stray"`; !strings.Contains(out, want) {
+					t.Errorf("out = %q, want %q", out, want)
+				}
+				if !strings.Contains(out, "no signal verb takes a positional argument") {
+					t.Errorf("out = %q, want the hint saying no verb takes a positional argument", out)
+				}
+				if _, ok := srv.buf.Comment(); ok {
+					t.Error("comment buffered after rejection, want none")
+				}
+				if _, ok := srv.buf.PRIntent(); ok {
+					t.Error("pr-intent buffered after rejection, want none")
+				}
+				if got := srv.buf.IssueIntents(); len(got) != 0 {
+					t.Errorf("issue intents = %+v, want none buffered after rejection", got)
+				}
+			})
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentClassAndConcurrence pins -class/-concurrence
 // (issue #3880): both are optional, and each lands in the buffered intent's
 // matching field unaltered.
