@@ -988,6 +988,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): flag provided but not defined: -nonce",
 		},
 		{
+			name: "issue-intent stray positional before flags",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; no signal verb takes positional arguments (quote multi-word values)`,
+		},
+		{
 			name: "status unknown flag",
 			args: []string{"status", "-nonce", "x"},
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
@@ -1023,6 +1028,27 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 				t.Fatalf("last line = %q, want %q (full out=%q)", got, tc.want, out)
 			}
 		})
+	}
+}
+
+// TestRunSignal_StrayPositionalNeverPosts pins the harm behind the stray
+// positional rejection: the intent, its -dedup and -patch-file dropped, must
+// never reach the socket, so the only op mirrored is the usage report.
+func TestRunSignal_StrayPositionalNeverPosts(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff")
+	if rc == 0 {
+		t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(srv.log.String()), "\n") {
+		var ev hostop.Event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("mirror line %q is not an event: %v", line, err)
+		}
+		if ev.SpindriftOp == nil || ev.SpindriftOp.Decision != "usage" {
+			t.Fatalf("mirror line %q, want only the usage report", line)
+		}
 	}
 }
 
