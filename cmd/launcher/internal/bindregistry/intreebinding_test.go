@@ -271,6 +271,109 @@ func TestApplyInTreeBindingEscaping(t *testing.T) {
 	}
 }
 
+// A host is rewritten only when it ends at a host boundary: a longer port or
+// a longer domain sharing the prefix is a different host.
+func TestApplyInTreeBindingLeavesLookAlikeHostsAlone(t *testing.T) {
+	const local = "http://127.0.0.1:27182/r0"
+	lookAlikes := "@a:registry=https://nexus.corp:8081/repository/npm/\n" +
+		"@b:registry=https://nexus.corp.mirror.net/npm/\n"
+	rewrites := []HostRewrite{{UpstreamHost: "nexus.corp", LocalURL: local}}
+
+	t.Run("exact_host_rewritten_look_alikes_untouched", func(t *testing.T) {
+		dir := newTestRepo(t)
+		writeConfig(t, dir, npmBinding.InTreeConfigPath, "registry=https://nexus.corp/npm/\n"+lookAlikes, true)
+
+		reason, err := ApplyInTreeBinding(dir, npmBinding, rewrites)
+		if err != nil {
+			t.Fatalf("ApplyInTreeBinding: %v", err)
+		}
+		if reason != ApplyApplied {
+			t.Errorf("reason = %v, want %v", reason, ApplyApplied)
+		}
+		got, err := os.ReadFile(filepath.Join(dir, npmBinding.InTreeConfigPath))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "registry=" + local + "/npm/\n" + lookAlikes
+		if string(got) != want {
+			t.Errorf("content = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("only_look_alikes_is_noop_and_untagged", func(t *testing.T) {
+		dir := newTestRepo(t)
+		writeConfig(t, dir, npmBinding.InTreeConfigPath, lookAlikes, true)
+
+		reason, err := ApplyInTreeBinding(dir, npmBinding, rewrites)
+		if err != nil {
+			t.Fatalf("ApplyInTreeBinding: %v", err)
+		}
+		if reason != ApplyNoopContent {
+			t.Errorf("reason = %v, want %v", reason, ApplyNoopContent)
+		}
+		got, err := os.ReadFile(filepath.Join(dir, npmBinding.InTreeConfigPath))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != lookAlikes {
+			t.Errorf("content = %q, want unchanged %q", got, lookAlikes)
+		}
+		if skipWorktreeSet(t, dir, npmBinding.InTreeConfigPath) {
+			t.Error("skip-worktree bit set on a config with no rewritable host")
+		}
+	})
+}
+
+func TestReplaceAllFoldHostBoundary(t *testing.T) {
+	const defaultOld, repl = "https://nexus.corp", "R"
+	cases := []struct {
+		name string
+		old  string // empty means defaultOld
+		in   string
+		want string
+	}{
+		{name: "eof", in: "https://nexus.corp", want: "R"},
+		{name: "slash", in: "https://nexus.corp/x", want: "R/x"},
+		{name: "double_quote", in: `"https://nexus.corp"`, want: `"R"`},
+		{name: "single_quote", in: "'https://nexus.corp'", want: "'R'"},
+		{name: "query", in: "https://nexus.corp?a=1", want: "R?a=1"},
+		{name: "fragment", in: "https://nexus.corp#f", want: "R#f"},
+		{name: "space", in: "https://nexus.corp x", want: "R x"},
+		{name: "tab", in: "https://nexus.corp\tx", want: "R\tx"},
+		{name: "newline", in: "https://nexus.corp\nx", want: "R\nx"},
+		{name: "colon_eof", in: "https://nexus.corp:", want: "R:"},
+		{name: "yaml_key_colon_space", in: `"https://nexus.corp": x`, want: `"R": x`},
+		{name: "yaml_key_colon_newline", in: "https://nexus.corp:\n  x", want: "R:\n  x"},
+		{name: "yaml_key_colon_quote", in: `"https://nexus.corp:"`, want: `"R:"`},
+		{name: "flow_sequence_comma", in: "[https://nexus.corp, x]", want: "[R, x]"},
+		{name: "flow_sequence_bracket", in: "[x, https://nexus.corp]", want: "[x, R]"},
+		{name: "flow_mapping_brace", in: "{a: https://nexus.corp}", want: "{a: R}"},
+		{name: "case_folded", in: "HTTPS://NEXUS.CORP/Path", want: "R/Path"},
+		{name: "dot", in: "https://nexus.corp.mirror.net/", want: "https://nexus.corp.mirror.net/"},
+		{name: "hyphen", in: "https://nexus.corp-2/", want: "https://nexus.corp-2/"},
+		{name: "underscore", in: "https://nexus.corp_2/", want: "https://nexus.corp_2/"},
+		{name: "letter", in: "https://nexus.corpx/", want: "https://nexus.corpx/"},
+		{name: "digit", in: "https://nexus.corp2/", want: "https://nexus.corp2/"},
+		{name: "at", in: "https://nexus.corp@evil/", want: "https://nexus.corp@evil/"},
+		{name: "port", in: "https://nexus.corp:8081/x", want: "https://nexus.corp:8081/x"},
+		{name: "empty_port", in: "https://nexus.corp:/path", want: "https://nexus.corp:/path"},
+		{name: "ported_route_exact", old: "https://nexus.corp:8443", in: "https://nexus.corp:8443/x", want: "R/x"},
+		{name: "ported_route_longer_port", old: "https://nexus.corp:8443", in: "https://nexus.corp:84430/", want: "https://nexus.corp:84430/"},
+		{name: "rejected_then_accepted", in: "https://nexus.corp.x/ https://nexus.corp/", want: "https://nexus.corp.x/ R/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			old := tc.old
+			if old == "" {
+				old = defaultOld
+			}
+			if got := replaceAllFold(tc.in, old, repl); got != tc.want {
+				t.Errorf("replaceAllFold(%q, %q) = %q, want %q", tc.in, old, got, tc.want)
+			}
+		})
+	}
+}
+
 // Each case proves the generic engine ApplyInTreeBinding already uses for
 // cargo's TOML also rewrites npm's, yarn berry's, and pnpm's own syntax on
 // both schemes, with no ecosystem-specific code (issue #2933; these were

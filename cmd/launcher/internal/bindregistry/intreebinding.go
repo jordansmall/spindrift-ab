@@ -134,7 +134,58 @@ func asciiLower(s string) string {
 	return string(b)
 }
 
-// replaceAllFold is strings.ReplaceAll with ASCII case-insensitive matching.
+// upstreamSchemes are the schemes a config may spell an upstream host with, in
+// rewrite order. A sparse index URL like "sparse+https://HOST/" matches
+// through its "https://" tail.
+var upstreamSchemes = [...]string{"https://", "http://"}
+
+// hostBoundaryAt reports whether a "scheme://host" match ending at end in s is
+// a whole host rather than the prefix of a longer one. ',', ']' and '}' end an
+// unquoted URL in a YAML flow collection. A ':' qualifies only before end of
+// input, whitespace, or a quote (a YAML key like "https://host:"), so both
+// "host:8081" and the malformed "host:/path" stay untouched. That holds
+// whether or not UpstreamHost carries a port (see FoldHost): a ported host
+// followed by ':' and a non-port is never a longer host either.
+func hostBoundaryAt(s string, end int) bool {
+	if end >= len(s) {
+		return true
+	}
+	switch c := s[end]; c {
+	case '/', '?', '#', '"', '\'', ',', ']', '}', ' ', '\t', '\n', '\r', '\v', '\f':
+		return true
+	case ':':
+		if end+1 >= len(s) {
+			return true
+		}
+		switch s[end+1] {
+		case '"', '\'', ' ', '\t', '\n', '\r', '\v', '\f':
+			return true
+		}
+	}
+	return false
+}
+
+// indexHostFold returns the index in foldedS, at or after from, of the first
+// foldedOld match that ends at a host boundary, or -1. foldedS and foldedOld
+// must both already be asciiLower'd. A rejected match advances the search one
+// byte, so a real match overlapping or following it is still found.
+func indexHostFold(foldedS string, from int, foldedOld string) int {
+	for from <= len(foldedS) {
+		i := strings.Index(foldedS[from:], foldedOld)
+		if i < 0 {
+			return -1
+		}
+		i += from
+		if hostBoundaryAt(foldedS, i+len(foldedOld)) {
+			return i
+		}
+		from = i + 1
+	}
+	return -1
+}
+
+// replaceAllFold is strings.ReplaceAll with ASCII case-insensitive matching,
+// restricted to matches that end at a host boundary (hostBoundaryAt).
 // Bytes outside a matched span, such as an uppercase path, stay untouched.
 // Relies on asciiLower being length-preserving (ASCII-only) so indexes into the
 // folded copy align with s; old must be non-empty (callers prepend a scheme).
@@ -143,11 +194,10 @@ func replaceAllFold(s, old, repl string) string {
 	var out strings.Builder
 	last := 0
 	for {
-		i := strings.Index(foldedS[last:], foldedOld)
+		i := indexHostFold(foldedS, last, foldedOld)
 		if i < 0 {
 			break
 		}
-		i += last
 		out.WriteString(s[last:i])
 		out.WriteString(repl)
 		last = i + len(old)
@@ -249,8 +299,12 @@ func ApplyInTreeBinding(repoDir string, row ecosystem.Row, rewrites []HostRewrit
 	anyHostPresent := false
 	for _, rw := range rewrites {
 		host := FoldHost(rw.UpstreamHost)
-		if strings.Contains(foldedContent, "https://"+host) || strings.Contains(foldedContent, "http://"+host) {
-			anyHostPresent = true
+		for _, scheme := range upstreamSchemes {
+			if indexHostFold(foldedContent, 0, scheme+host) >= 0 {
+				anyHostPresent = true
+			}
+		}
+		if anyHostPresent {
 			break
 		}
 	}
@@ -274,10 +328,9 @@ func ApplyInTreeBinding(repoDir string, row ecosystem.Row, rewrites []HostRewrit
 	}
 
 	// Longest host first, on a copy because the caller's slice order must
-	// survive: two hosts can overlap by prefix ("registry.example.com" and
-	// "registry.example.com:8443"), and replacing the shorter one first would
-	// also match inside the longer host's own URL and corrupt it. Longest-first
-	// also keeps a shorter host out of an already-rewritten LocalURL.
+	// survive. hostBoundaryAt alone keeps prefix-overlapping hosts
+	// ("registry.example.com" vs "registry.example.com:8443") apart; the sort
+	// is a second guard for that same overlap.
 	ordered := append([]HostRewrite(nil), rewrites...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		return len(ordered[i].UpstreamHost) > len(ordered[j].UpstreamHost)
@@ -290,8 +343,9 @@ func ApplyInTreeBinding(repoDir string, row ecosystem.Row, rewrites []HostRewrit
 	// "#", or "*".
 	rewritten := contentStr
 	for _, rw := range ordered {
-		rewritten = replaceAllFold(rewritten, "https://"+rw.UpstreamHost, rw.LocalURL)
-		rewritten = replaceAllFold(rewritten, "http://"+rw.UpstreamHost, rw.LocalURL)
+		for _, scheme := range upstreamSchemes {
+			rewritten = replaceAllFold(rewritten, scheme+rw.UpstreamHost, rw.LocalURL)
+		}
 	}
 
 	// Tag before writing: update-index only flips an index bit, so a path git
