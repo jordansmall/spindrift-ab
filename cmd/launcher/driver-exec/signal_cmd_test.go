@@ -960,6 +960,25 @@ func lastNonEmptyLine(s string) string {
 	return ""
 }
 
+// TestRunSignal_StrayPositionalNeverReachesSocket pins that a leftover
+// positional is rejected before anything is sent: Go's flag package stops at
+// the first non-flag token, so a flag after it (-dedup here) would otherwise be
+// silently dropped.
+func TestRunSignal_StrayPositionalNeverReachesSocket(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	rc, out := runVerb(t, "one body", "issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Foo")
+	if rc != 1 {
+		t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+	}
+	if !strings.Contains(out, `"stray"`) {
+		t.Fatalf("output = %q, want it to name the stray token", out)
+	}
+	if got := srv.buf.IssueIntents(); len(got) != 0 {
+		t.Fatalf("issue intents = %d, want 0 (a rejected verb must not post)", len(got))
+	}
+}
+
 // TestRunSignal_UsageFailureRejectedLine pins issue #3867's client-side
 // contract: every usage failure's last line is "signal <kind> rejected
 // (usage): <reason>", in the same shape as a server rejection, whatever kind
@@ -1001,6 +1020,16 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "issue-intent missing type",
 			args: []string{"issue-intent", "-title", "t"},
 			want: "signal issue-intent rejected (usage): -type is required",
+		},
+		{
+			name: "issue-intent stray positional before a flag",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Foo"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": signal flags take no positional arguments; quote a multi-word value`,
+		},
+		{
+			name: "pr-intent unquoted multi-word title",
+			args: []string{"pr-intent", "-title", "Fix", "the", "bug"},
+			want: `signal pr-intent rejected (usage): unexpected argument "the": signal flags take no positional arguments; quote a multi-word value`,
 		},
 		{
 			name: "no args",

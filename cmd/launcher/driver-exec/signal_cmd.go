@@ -186,13 +186,20 @@ func classListViolation(class string, classes []string) string {
 // -h/-help, which is a request, not a failure, so it keeps the plain dump and
 // exit 1 with no report. On ok=false the caller must return 1 immediately;
 // fs has already written its own error and usage dump to stdout before either
-// path adds anything further.
+// path adds anything further. A leftover positional argument takes the same
+// usage-failure path, though fs writes nothing for it.
 func parseSignalFlags(fs *flag.FlagSet, rest []string, kind string, stdout io.Writer) (ok bool) {
 	if err := fs.Parse(rest); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return false
 		}
 		signalUsageFailure(stdout, kind, err.Error())
+		return false
+	}
+	// flag.Parse stops at the first non-flag token and reports no error, so
+	// flags after a stray word would otherwise be silently dropped.
+	if fs.NArg() > 0 {
+		signalUsageFailure(stdout, kind, fmt.Sprintf("unexpected argument %q: signal flags take no positional arguments; quote a multi-word value", fs.Arg(0)))
 		return false
 	}
 	return true
