@@ -1613,6 +1613,89 @@ func TestApplyInTreeBindingOverlappingMixedCaseHostsRewriteLongestFirst(t *testi
 	}
 }
 
+// A portless route must not rewrite a longer host that starts with its name:
+// nexus.corp:8081 names another port and nexus.corp.mirror.net another host.
+// Only the exact nexus.corp line may be rewritten.
+func TestApplyInTreeBindingRejectsLookAlikeHostsOfPortlessRoute(t *testing.T) {
+	dir := newTestRepo(t)
+	content := "@a:registry=https://nexus.corp:8081/repository/npm/\n@b:registry=https://nexus.corp.mirror.net/npm/\nregistry=https://nexus.corp/repository/npm/\n"
+	writeConfig(t, dir, npmBinding.InTreeConfigPath, content, true)
+
+	reason, err := ApplyInTreeBinding(dir, npmBinding, []HostRewrite{{UpstreamHost: "nexus.corp", LocalURL: "http://127.0.0.1:27182/r0"}})
+	if err != nil {
+		t.Fatalf("ApplyInTreeBinding: %v", err)
+	}
+	if reason != ApplyApplied {
+		t.Errorf("reason = %v, want %v", reason, ApplyApplied)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, npmBinding.InTreeConfigPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "@a:registry=https://nexus.corp:8081/repository/npm/\n@b:registry=https://nexus.corp.mirror.net/npm/\nregistry=http://127.0.0.1:27182/r0/repository/npm/\n"
+	if string(got) != want {
+		t.Errorf("rewritten content = %q, want %q", got, want)
+	}
+}
+
+// A config naming only look-alike hosts is not a match, so it takes the
+// no-content path: the file stays untouched and is not tagged skip-worktree.
+func TestApplyInTreeBindingLookAlikeOnlyConfigIsNoopContent(t *testing.T) {
+	dir := newTestRepo(t)
+	content := "@a:registry=https://nexus.corp:8081/repository/npm/\n@b:registry=https://nexus.corp.mirror.net/npm/\n"
+	writeConfig(t, dir, npmBinding.InTreeConfigPath, content, true)
+
+	reason, err := ApplyInTreeBinding(dir, npmBinding, []HostRewrite{{UpstreamHost: "nexus.corp", LocalURL: "http://127.0.0.1:27182/r0"}})
+	if err != nil {
+		t.Fatalf("ApplyInTreeBinding: %v", err)
+	}
+	if reason != ApplyNoopContent {
+		t.Errorf("reason = %v, want %v", reason, ApplyNoopContent)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, npmBinding.InTreeConfigPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Errorf("content changed: got %q, want %q", got, content)
+	}
+	if skipWorktreeSet(t, dir, npmBinding.InTreeConfigPath) {
+		t.Error("skip-worktree bit set after a no-content apply, want it clear")
+	}
+}
+
+func TestReplaceAllFoldStopsAtHostBoundary(t *testing.T) {
+	cases := []struct {
+		name string
+		old  string
+		s    string
+		want string
+	}{
+		{name: "end_of_input_matches", old: "https://h", s: "https://h", want: "X"},
+		{name: "slash_matches", old: "https://h", s: "https://h/p", want: "X/p"},
+		{name: "query_matches", old: "https://h", s: "https://h?q", want: "X?q"},
+		{name: "fragment_matches", old: "https://h", s: "https://h#f", want: "X#f"},
+		{name: "quote_matches", old: "https://h", s: `"https://h"`, want: `"X"`},
+		{name: "whitespace_matches", old: "https://h", s: "https://h\n", want: "X\n"},
+		{name: "colon_then_non_digit_matches", old: "https://h", s: "https://h:/", want: "X:/"},
+		{name: "colon_then_digit_rejected", old: "https://h", s: "https://h:8443/", want: "https://h:8443/"},
+		{name: "dot_continuation_rejected", old: "https://h", s: "https://h.mirror/", want: "https://h.mirror/"},
+		{name: "dash_continuation_rejected", old: "https://h", s: "https://h-2/", want: "https://h-2/"},
+		{name: "underscore_continuation_rejected", old: "https://h", s: "https://h_2/", want: "https://h_2/"},
+		{name: "rejected_then_real_match_later", old: "https://h", s: "https://h.x https://h/", want: "https://h.x X/"},
+		{name: "case_folded_match_and_look_alike", old: "https://h", s: "HTTPS://H.X/ HTTPS://H/", want: "HTTPS://H.X/ X/"},
+		{name: "port_route_matches_its_own_port", old: "https://h:8443", s: "https://h:8443/", want: "X/"},
+		{name: "port_route_rejects_longer_port", old: "https://h:8443", s: "https://h:84430/", want: "https://h:84430/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := replaceAllFold(tc.s, tc.old, "X"); got != tc.want {
+				t.Errorf("replaceAllFold(%q, %q, X) = %q, want %q", tc.s, tc.old, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestASCIILowerLowercasesASCIIOnly(t *testing.T) {
 	cases := map[string]string{
 		"":                          "",

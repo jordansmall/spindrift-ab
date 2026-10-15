@@ -134,26 +134,61 @@ func asciiLower(s string) string {
 	return string(b)
 }
 
-// replaceAllFold is strings.ReplaceAll with ASCII case-insensitive matching.
-// Bytes outside a matched span, such as an uppercase path, stay untouched.
-// Relies on asciiLower being length-preserving (ASCII-only) so indexes into the
-// folded copy align with s; old must be non-empty (callers prepend a scheme).
+// replaceAllFold is strings.ReplaceAll with ASCII case-insensitive matching,
+// except a match must end at a host boundary (see indexHostFold). Bytes outside
+// a matched span, such as an uppercase path, stay untouched. Relies on
+// asciiLower being length-preserving (ASCII-only) so indexes into the folded
+// copy align with s; old must be non-empty (callers prepend a scheme).
 func replaceAllFold(s, old, repl string) string {
 	foldedS, foldedOld := asciiLower(s), asciiLower(old)
 	var out strings.Builder
 	last := 0
 	for {
-		i := strings.Index(foldedS[last:], foldedOld)
+		i := indexHostFold(foldedS, foldedOld, last)
 		if i < 0 {
 			break
 		}
-		i += last
 		out.WriteString(s[last:i])
 		out.WriteString(repl)
 		last = i + len(old)
 	}
 	out.WriteString(s[last:])
 	return out.String()
+}
+
+// indexHostFold returns the first index at or after from where foldedPrefix
+// (a folded "scheme://host") occurs as a whole host, or -1. A match is rejected
+// when the next byte would continue the hostname, or is a ":" then a digit (a
+// port the prefix did not name). Rejections resume one byte later, so a
+// rejected candidate never hides a real match after it.
+func indexHostFold(foldedS, foldedPrefix string, from int) int {
+	for {
+		i := strings.Index(foldedS[from:], foldedPrefix)
+		if i < 0 {
+			return -1
+		}
+		i += from
+		if !hostContinues(foldedS, i+len(foldedPrefix)) {
+			return i
+		}
+		from = i + 1
+	}
+}
+
+// hostContinues reports whether the text at end extends a host: a hostname
+// byte, or ":" followed by a digit. Input is already folded, so only lowercase
+// letters need matching. "." counts as a hostname byte so "h.mirror.net" is
+// kept apart from "h", at the cost of leaving a trailing-dot FQDN ("h./")
+// unrewritten.
+func hostContinues(foldedS string, end int) bool {
+	if end >= len(foldedS) {
+		return false
+	}
+	c := foldedS[end]
+	if ('a' <= c && c <= 'z') || ('0' <= c && c <= '9') || c == '.' || c == '-' || c == '_' {
+		return true
+	}
+	return c == ':' && end+1 < len(foldedS) && '0' <= foldedS[end+1] && foldedS[end+1] <= '9'
 }
 
 // ApplyInTreeBinding rewrites row's in-tree config file, when it exists and is
@@ -249,7 +284,7 @@ func ApplyInTreeBinding(repoDir string, row ecosystem.Row, rewrites []HostRewrit
 	anyHostPresent := false
 	for _, rw := range rewrites {
 		host := FoldHost(rw.UpstreamHost)
-		if strings.Contains(foldedContent, "https://"+host) || strings.Contains(foldedContent, "http://"+host) {
+		if indexHostFold(foldedContent, "https://"+host, 0) >= 0 || indexHostFold(foldedContent, "http://"+host, 0) >= 0 {
 			anyHostPresent = true
 			break
 		}
@@ -274,10 +309,10 @@ func ApplyInTreeBinding(repoDir string, row ecosystem.Row, rewrites []HostRewrit
 	}
 
 	// Longest host first, on a copy because the caller's slice order must
-	// survive: two hosts can overlap by prefix ("registry.example.com" and
-	// "registry.example.com:8443"), and replacing the shorter one first would
-	// also match inside the longer host's own URL and corrupt it. Longest-first
-	// also keeps a shorter host out of an already-rewritten LocalURL.
+	// survive. Overlapping hosts ("registry.example.com" and
+	// "registry.example.com:8443") are kept apart by replaceAllFold's host
+	// boundary, so the ordering's only remaining job is keeping a shorter host
+	// from matching inside a LocalURL an earlier rewrite already spliced in.
 	ordered := append([]HostRewrite(nil), rewrites...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		return len(ordered[i].UpstreamHost) > len(ordered[j].UpstreamHost)
