@@ -1003,6 +1003,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "stray positional before a later flag",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote multi-word values`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
@@ -1024,6 +1029,19 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunSignal_StrayPositionalSendsNothing pins that a stray-positional rejection sends no intent.
+func TestRunSignal_StrayPositionalSendsNothing(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+		if rc, out := runVerb(t, "b", "issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"); rc == 0 {
+			t.Errorf("exit = 0, want non-zero (out=%q)", out)
+		}
+		if n := len(srv.buf.IssueIntents()); n != 0 {
+			t.Fatalf("a stray-positional intent sent %d intents, want 0", n)
+		}
+	})
 }
 
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
