@@ -869,7 +869,7 @@ func TestRunSignal_NoRouteAcceptsADestination(t *testing.T) {
 }
 
 func TestRunSignal_UsageErrors(t *testing.T) {
-	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
 
 	t.Run("unknown kind", func(t *testing.T) {
 		rc, out := runVerb(t, "", "nope")
@@ -898,6 +898,31 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 	t.Run("issue-intent without type", func(t *testing.T) {
 		if rc, out := runVerb(t, "a body", "issue-intent", "-title", "t"); rc != 1 {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+	})
+
+	t.Run("stray positional drops nothing", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		for _, want := range []string{"stray", "quoted"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("output = %q, want it to name %q", out, want)
+			}
+		}
+		if n := len(srv.buf.IssueIntents()); n != 0 {
+			t.Fatalf("%d intent(s) buffered, want 0: flags after a stray positional must not be half-applied", n)
+		}
+	})
+
+	t.Run("stray positional in pr-intent", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "pr-intent", "-title", "Fix", "race")
+		if rc != 1 || !strings.Contains(out, `"race"`) {
+			t.Fatalf("exit = %d, want 1 naming the stray token (out=%q)", rc, out)
+		}
+		if _, ok := srv.buf.PRIntent(); ok {
+			t.Fatal("pr-intent buffered despite a stray positional")
 		}
 	})
 }
