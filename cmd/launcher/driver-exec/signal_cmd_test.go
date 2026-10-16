@@ -965,7 +965,7 @@ func lastNonEmptyLine(s string) string {
 // (usage): <reason>", in the same shape as a server rejection, whatever kind
 // word (or none, or an unrecognised one) the agent gave.
 func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
-	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
 
 	cases := []struct {
 		name string
@@ -1003,6 +1003,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional before -dedup",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote a multi-word flag value`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
@@ -1023,6 +1028,18 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 				t.Fatalf("last line = %q, want %q (full out=%q)", got, tc.want, out)
 			}
 		})
+	}
+
+	// Only usage reports may reach the socket: the stray-positional row once
+	// sent its intent with -dedup silently dropped.
+	for _, line := range strings.Split(strings.TrimSpace(srv.log.String()), "\n") {
+		var ev hostop.Event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("mirror line %q is not an event: %v", line, err)
+		}
+		if ev.SpindriftOp == nil || ev.SpindriftOp.Decision != "usage" {
+			t.Fatalf("mirror line %q is not a usage report: no usage failure may send its signal", line)
+		}
 	}
 }
 
