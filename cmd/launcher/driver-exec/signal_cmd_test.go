@@ -1003,6 +1003,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional before a flag",
+			args: []string{"issue-intent", "-type", "bug", "-title", "two", "words", "-dedup", "k"},
+			want: `signal issue-intent rejected (usage): unexpected argument "words"; quote a multi-word flag value`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
