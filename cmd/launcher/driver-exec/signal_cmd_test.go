@@ -472,6 +472,27 @@ func TestRunSignal_ReplaceDedupAppend(t *testing.T) {
 	})
 }
 
+// A stray positional stops flag parsing, so every flag after it would be
+// silently dropped; it must be a usage failure instead.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "body", "issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		for _, want := range []string{"(usage)", `"stray"`, "quote a multi-word value"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("out = %q, want it to contain %q", out, want)
+			}
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Errorf("issue intents = %+v, want none", got)
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentDedupTerms pins -dedup's repeatability (issue
 // #3609): each occurrence appends, and the terms arrive in the buffered
 // intent's DedupTerms in the order given.

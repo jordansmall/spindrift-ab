@@ -195,6 +195,10 @@ func parseSignalFlags(fs *flag.FlagSet, rest []string, kind string, stdout io.Wr
 		signalUsageFailure(stdout, kind, err.Error())
 		return false
 	}
+	if fs.NArg() > 0 {
+		signalUsageFailure(stdout, kind, fmt.Sprintf("unexpected argument %q (flags after it would be ignored; quote a multi-word value)", fs.Arg(0)))
+		return false
+	}
 	return true
 }
 
