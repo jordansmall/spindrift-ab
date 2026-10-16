@@ -1,5 +1,15 @@
 # Migration Guide
 
+## `driver-exec signal` rejects stray positional arguments
+
+`driver-exec signal comment`, `pr-intent`, `issue-intent`, and `status` now
+exit 1 with `signal <kind> rejected (usage): unexpected argument "<token>"`
+when a positional argument is left over after the flags, including anything
+after a `--`. Before, flag parsing stopped silently at that token: every flag
+after it was dropped and the signal was sent without them. That usually meant
+a multi-word flag value was left unquoted. Quote the value instead, as in
+`-concurrence 'Reviewer agrees'`. No signal verb takes positionals.
+
 ## Roster inline prompts need a unique, bare promptFile (issue #5203)
 
 A roster entry with a non-empty inline `prompt` now fails evaluation when its
