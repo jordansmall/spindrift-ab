@@ -195,6 +195,11 @@ func parseSignalFlags(fs *flag.FlagSet, rest []string, kind string, stdout io.Wr
 		signalUsageFailure(stdout, kind, err.Error())
 		return false
 	}
+	if fs.NArg() > 0 {
+		// flag stops at the first positional, so every flag after it went unparsed.
+		signalUsageFailure(stdout, kind, fmt.Sprintf("unexpected argument %q; multi-word values need quoting", fs.Arg(0)))
+		return false
+	}
 	return true
 }
 

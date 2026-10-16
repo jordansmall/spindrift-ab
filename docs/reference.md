@@ -4831,7 +4831,9 @@ requires `-title` and `-type` (`bug`, `enhancement` or `chore`), and
 accepts a repeatable, optional `-dedup <site key>` per dedup term (issue
 #3609), plus a repeatable `-cite <digest anchor>` and a `-metric <slug>`
 that the Box requires whenever `CHORE_INPUT` is set (a tuning finding,
-issue #4952) and that other Chores omit; `status` takes no flags. The
+issue #4952) and that other Chores omit; `status` takes no flags. Every
+subcommand rejects a bare positional token as a usage error, since flag
+parsing stops there and would silently drop the flags after it. The
 command's exit code is the acceptance: exit 0 prints a receipt —
 `signal <kind> accepted: <n> bytes, <hash>, sequence <n>` — and the signal
 is taken; a non-zero exit
