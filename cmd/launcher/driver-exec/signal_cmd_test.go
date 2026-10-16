@@ -506,6 +506,24 @@ func TestRunSignal_IssueIntentDedupTerms(t *testing.T) {
 	})
 }
 
+// TestRunSignal_IssueIntentStrayPositional pins the no-send half of the
+// stray-positional guard: the verb exits 1 and nothing reaches the buffer, so
+// the -dedup after the stray token is never silently dropped.
+// TestRunSignal_UsageFailureRejectedLine pins the rejected line's text.
+func TestRunSignal_IssueIntentStrayPositional(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Fatalf("issue intents = %+v, want none", got)
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentClassAndConcurrence pins -class/-concurrence
 // (issue #3880): both are optional, and each lands in the buffered intent's
 // matching field unaltered.
@@ -1001,6 +1019,26 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "issue-intent missing type",
 			args: []string{"issue-intent", "-title", "t"},
 			want: "signal issue-intent rejected (usage): -type is required",
+		},
+		{
+			name: "comment stray positional",
+			args: []string{"comment", "-body-file", "-", "stray"},
+			want: `signal comment rejected (usage): unexpected argument "stray" (quote a multi-word flag value)`,
+		},
+		{
+			name: "pr-intent stray positional",
+			args: []string{"pr-intent", "-title", "Fix", "race"},
+			want: `signal pr-intent rejected (usage): unexpected argument "race" (quote a multi-word flag value)`,
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray" (quote a multi-word flag value)`,
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "stray"},
+			want: `signal status rejected (usage): unexpected argument "stray" (quote a multi-word flag value)`,
 		},
 		{
 			name: "no args",
