@@ -889,6 +889,17 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("stray positional before a flag", func(t *testing.T) {
+		rc, out := runVerb(t, "one body", "issue-intent", "-title", "one", "-type", "bug", "stray", "-dedup", "a.go:Foo")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		want := `signal issue-intent rejected (usage): unexpected argument "stray" (quote a multi-word value so it stays one argument)`
+		if got := lastNonEmptyLine(out); got != want {
+			t.Fatalf("last line = %q, want %q (full out=%q)", got, want, out)
+		}
+	})
+
 	t.Run("pr-intent without title", func(t *testing.T) {
 		if rc, out := runVerb(t, "a body", "pr-intent"); rc != 1 {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
@@ -1001,6 +1012,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "issue-intent missing type",
 			args: []string{"issue-intent", "-title", "t"},
 			want: "signal issue-intent rejected (usage): -type is required",
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "stray", "-type", "bug"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray" (quote a multi-word value so it stays one argument)`,
 		},
 		{
 			name: "no args",
