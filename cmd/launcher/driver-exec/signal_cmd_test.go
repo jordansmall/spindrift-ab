@@ -900,6 +900,30 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
 		}
 	})
+
+	// fs.Parse stops at the first non-flag token without error, so a stray
+	// positional would silently drop every later flag.
+	strays := []struct {
+		kind string
+		args []string
+	}{
+		{"issue-intent", []string{"-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"}},
+		{"pr-intent", []string{"-title", "t", "stray", "-body-file", "-"}},
+		{"comment", []string{"stray"}},
+		{"status", []string{"stray"}},
+	}
+	for _, tc := range strays {
+		t.Run(tc.kind+" stray positional", func(t *testing.T) {
+			rc, out := runVerb(t, "a body", append([]string{tc.kind}, tc.args...)...)
+			if rc != 1 {
+				t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+			}
+			const want = `unexpected argument "stray": flags must precede it, and multi-word values need quoting`
+			if !strings.Contains(out, want) {
+				t.Fatalf("output = %q, want it to contain %q", out, want)
+			}
+		})
+	}
 }
 
 func TestRunSignal_EndpointErrors(t *testing.T) {
