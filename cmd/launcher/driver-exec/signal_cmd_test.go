@@ -895,6 +895,17 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("issue-intent stray positional before -dedup", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "t", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if !strings.Contains(out, `"stray"`) || !strings.Contains(out, "quote") {
+			t.Fatalf("output = %q, want it to name the stray token and hint at quoting", out)
+		}
+	})
+
 	t.Run("issue-intent without type", func(t *testing.T) {
 		if rc, out := runVerb(t, "a body", "issue-intent", "-title", "t"); rc != 1 {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
