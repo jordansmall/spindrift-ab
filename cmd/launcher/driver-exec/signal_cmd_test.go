@@ -472,6 +472,45 @@ func TestRunSignal_ReplaceDedupAppend(t *testing.T) {
 	})
 }
 
+// TestRunSignal_IssueIntentRejectsStrayPositional pins that a leftover
+// positional (Go's flag stops parsing at it) is a usage failure rather than
+// silently dropping every later flag.
+func TestRunSignal_IssueIntentRejectsStrayPositional(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym")
+		if rc == 0 {
+			t.Fatalf("exit = 0, want nonzero (out=%q)", out)
+		}
+		last := lastNonEmptyLine(out)
+		if !strings.HasPrefix(last, "signal issue-intent rejected (usage):") ||
+			!strings.Contains(last, `"stray"`) || !strings.Contains(last, "quote") {
+			t.Errorf("last line = %q, want usage rejection naming %q and quoting hint", last, "stray")
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Errorf("issue intents = %+v, want none", got)
+		}
+	})
+}
+
+// TestRunSignal_OtherVerbsRejectStrayPositional pins that the leftover check
+// runs for every verb, not only issue-intent.
+func TestRunSignal_OtherVerbsRejectStrayPositional(t *testing.T) {
+	for _, args := range [][]string{
+		{"comment", "stray"},
+		{"pr-intent", "-title", "t", "stray"},
+		{"status", "stray"},
+	} {
+		rc, out := runVerb(t, "body", args...)
+		last := lastNonEmptyLine(out)
+		if rc == 0 || !strings.HasPrefix(last, "signal "+args[0]+" rejected (usage):") || !strings.Contains(last, `"stray"`) {
+			t.Errorf("%v: exit = %d, last line = %q, want usage rejection naming %q", args, rc, last, "stray")
+		}
+	}
+}
+
 // TestRunSignal_IssueIntentDedupTerms pins -dedup's repeatability (issue
 // #3609): each occurrence appends, and the terms arrive in the buffered
 // intent's DedupTerms in the order given.
