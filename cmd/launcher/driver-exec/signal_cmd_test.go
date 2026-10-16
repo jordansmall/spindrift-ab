@@ -902,6 +902,23 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 	})
 }
 
+var strayPositionalArgs = []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"}
+
+// A stray positional stops Go's flag parser, silently dropping every later
+// flag; the verb must reject the whole invocation rather than send a partial
+// intent.
+func TestRunSignal_StrayPositionalSendsNothing(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	rc, out := runVerb(t, "a body", strayPositionalArgs...)
+	if rc != 1 {
+		t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+	}
+	if got := srv.buf.IssueIntents(); len(got) != 0 {
+		t.Fatalf("buffer holds %d issue intents, want none: %+v", len(got), got)
+	}
+}
+
 func TestRunSignal_EndpointErrors(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -1001,6 +1018,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "issue-intent missing type",
 			args: []string{"issue-intent", "-title", "t"},
 			want: "signal issue-intent rejected (usage): -type is required",
+		},
+		{
+			name: "issue-intent stray positional before a flag",
+			args: strayPositionalArgs,
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": signal verbs take no positional arguments; a multi-word flag value may need quoting`,
 		},
 		{
 			name: "no args",
