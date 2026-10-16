@@ -1003,6 +1003,16 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote a multi-word flag value`,
+		},
+		{
+			name: "comment two stray positionals",
+			args: []string{"comment", "stray", "extra"},
+			want: `signal comment rejected (usage): unexpected argument "stray"; quote a multi-word flag value`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
@@ -1028,8 +1038,9 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
 // lands on the kind's usage route with the reason as its body and the TCP
-// secret header, and an unrecognised kind word never reaches the wire -- it
-// reports to the kindless route instead.
+// secret header, an unrecognised kind word never reaches the wire -- it
+// reports to the kindless route instead -- and a stray positional posts only
+// its usage report, never the intent.
 func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 	forEachTransport(t, func(t *testing.T, transport string) {
 		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
@@ -1038,6 +1049,9 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 			t.Fatal("exit = 0, want non-zero")
 		}
 		if rc, _ := runVerb(t, "", "nope"); rc == 0 {
+			t.Fatal("exit = 0, want non-zero")
+		}
+		if rc, _ := runVerb(t, "", "issue-intent", "-title", "t", "-type", "bug", "stray"); rc == 0 {
 			t.Fatal("exit = 0, want non-zero")
 		}
 
@@ -1052,7 +1066,7 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 			}
 			ops = append(ops, *ev.SpindriftOp)
 		}
-		if len(ops) != 2 {
+		if len(ops) != 3 {
 			t.Fatalf("mirrored %d ops, want one per usage report: %+v", len(ops), ops)
 		}
 		if ops[0].Decision != "usage" || ops[0].Kind != "comment" || !strings.Contains(ops[0].Reason, "-nonce") {
@@ -1064,6 +1078,9 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 		// reach the wire at all.
 		if ops[1].Decision != "usage" || ops[1].Kind != "unknown" {
 			t.Fatalf("unrecognised-kind usage op = %+v, want the kindless route, never the agent's word", ops[1])
+		}
+		if ops[2].Decision != "usage" || ops[2].Kind != "issue-intent" || !strings.Contains(ops[2].Reason, "stray") {
+			t.Fatalf("stray-positional usage op = %+v, want kind issue-intent and the argument as reason", ops[2])
 		}
 	})
 }
