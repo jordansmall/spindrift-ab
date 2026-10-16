@@ -902,6 +902,28 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 	})
 }
 
+// TestRunSignal_StrayPositionalIsRejected pins that a leftover positional
+// argument is a usage error: flag parsing stops at it, so accepting it would
+// silently drop every flag after it (here -dedup).
+func TestRunSignal_StrayPositionalIsRejected(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+		"-class", "correctness", "stray", "-dedup", "a.go:Sym")
+	if rc != 1 {
+		t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+	}
+	if !strings.Contains(out, "signal issue-intent rejected (usage)") {
+		t.Errorf("output = %q, want a usage rejection", out)
+	}
+	if !strings.Contains(out, `"stray"`) || !strings.Contains(out, "quote") {
+		t.Errorf("output = %q, want the stray token named and a quoting hint", out)
+	}
+	if got := srv.buf.IssueIntents(); len(got) != 0 {
+		t.Errorf("issue intents = %+v, want none sent", got)
+	}
+}
+
 func TestRunSignal_EndpointErrors(t *testing.T) {
 	cases := []struct {
 		name     string

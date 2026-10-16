@@ -195,6 +195,13 @@ func parseSignalFlags(fs *flag.FlagSet, rest []string, kind string, stdout io.Wr
 		signalUsageFailure(stdout, kind, err.Error())
 		return false
 	}
+	// flag stops at the first non-flag argument and no verb takes positionals,
+	// so a leftover one means every flag after it was silently dropped.
+	if fs.NArg() > 0 {
+		signalUsageFailure(stdout, kind, fmt.Sprintf(
+			"unexpected argument %q: flag parsing stops at it, so later flags were ignored; quote a multi-word value", fs.Arg(0)))
+		return false
+	}
 	return true
 }
 
