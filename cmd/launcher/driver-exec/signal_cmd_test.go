@@ -506,6 +506,25 @@ func TestRunSignal_IssueIntentDedupTerms(t *testing.T) {
 	})
 }
 
+// TestRunSignal_IssueIntentStrayPositional (issue #5297) pins that a leftover positional
+// (which stops flag parsing and would drop -dedup) is rejected, not accepted.
+func TestRunSignal_IssueIntentStrayPositional(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "body", "issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+		if rc == 0 {
+			t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+		}
+		if !strings.Contains(out, `"stray"`) || !strings.Contains(out, "quote") {
+			t.Errorf("out = %q, want it to name the stray token and hint at quoting", out)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Errorf("issue intents = %+v, want none", got)
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentClassAndConcurrence pins -class/-concurrence
 // (issue #3880): both are optional, and each lands in the buffered intent's
 // matching field unaltered.
