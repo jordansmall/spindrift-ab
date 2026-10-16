@@ -900,6 +900,21 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
 		}
 	})
+
+	// flag.Parse stops at the first positional, so an unquoted multi-word
+	// value would otherwise drop every later flag and still exit 0.
+	t.Run("stray positional before later flags", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		for _, want := range []string{`"stray"`, "quote"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output = %q, want it to contain %q", out, want)
+			}
+		}
+	})
 }
 
 func TestRunSignal_EndpointErrors(t *testing.T) {
@@ -991,6 +1006,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "status unknown flag",
 			args: []string{"status", "-nonce", "x"},
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "stray", "-type", "bug"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": no signal verb takes a positional; quote a multi-word value`,
 		},
 		{
 			name: "pr-intent missing title",
