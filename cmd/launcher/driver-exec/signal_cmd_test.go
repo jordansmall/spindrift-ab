@@ -1003,6 +1003,26 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional before -dedup",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray" (flag values containing spaces need quoting)`,
+		},
+		{
+			name: "comment stray positional",
+			args: []string{"comment", "stray"},
+			want: `signal comment rejected (usage): unexpected argument "stray" (flag values containing spaces need quoting)`,
+		},
+		{
+			name: "pr-intent trailing stray positional",
+			args: []string{"pr-intent", "-title", "t", "stray"},
+			want: `signal pr-intent rejected (usage): unexpected argument "stray" (flag values containing spaces need quoting)`,
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "stray"},
+			want: `signal status rejected (usage): unexpected argument "stray" (flag values containing spaces need quoting)`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
