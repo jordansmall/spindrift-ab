@@ -1003,6 +1003,16 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional before -dedup",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "/nonexistent/p.diff"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote multi-word values`,
+		},
+		{
+			name: "comment stray positional first",
+			args: []string{"comment", "stray", "-x"},
+			want: `signal comment rejected (usage): unexpected argument "stray"; quote multi-word values`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
