@@ -541,6 +541,29 @@ func TestRunSignal_IssueIntentClassAndConcurrence(t *testing.T) {
 	})
 }
 
+// TestRunSignal_StrayPositionalRejected pins that an unquoted multi-word
+// value -- which ends flag parsing at its second word, silently dropping every
+// flag after it -- is a usage failure that sends nothing.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "b", "issue-intent", "-title", "t", "-type", "bug",
+			"-concurrence", "agreed", "stray", "-dedup", "a.go:Sym")
+		if rc == 0 {
+			t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+		}
+		for _, want := range []string{`"stray"`, "quote"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("out = %q, want it to contain %q", out, want)
+			}
+		}
+		if n := len(srv.buf.IssueIntents()); n != 0 {
+			t.Fatalf("a stray positional sent %d intents, want 0", n)
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentClassList pins the Box-side guard (issue #4766):
 // with CHORE_CLASS_LIST set, -class is required and must be on it, and a
 // failure sends nothing so the Box can pick again in the same run. With it
@@ -991,6 +1014,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "status unknown flag",
 			args: []string{"status", "-nonce", "x"},
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "stray"},
+			want: `signal status rejected (usage): unexpected argument "stray"; quote a multi-word flag value`,
 		},
 		{
 			name: "pr-intent missing title",
