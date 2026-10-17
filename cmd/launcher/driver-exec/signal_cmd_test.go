@@ -506,6 +506,22 @@ func TestRunSignal_IssueIntentDedupTerms(t *testing.T) {
 	})
 }
 
+// TestRunSignal_IssueIntentStrayPositionalBuffersNothing pins that a leftover
+// positional (flag parsing stops there, silently dropping later flags) rejects
+// the signal instead of buffering a truncated intent.
+func TestRunSignal_IssueIntentStrayPositionalBuffersNothing(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		if rc, out := runVerb(t, "body", "issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"); rc == 0 {
+			t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Fatalf("issue intents = %+v, want none", got)
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentClassAndConcurrence pins -class/-concurrence
 // (issue #3880): both are optional, and each lands in the buffered intent's
 // matching field unaltered.
@@ -1001,6 +1017,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "issue-intent missing type",
 			args: []string{"issue-intent", "-title", "t"},
 			want: "signal issue-intent rejected (usage): -type is required",
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote a multi-word flag value`,
 		},
 		{
 			name: "no args",
