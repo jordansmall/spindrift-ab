@@ -1026,6 +1026,24 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 	}
 }
 
+// A stray positional stops Go's flag parsing, so every flag after it (here
+// -dedup) would be silently dropped; the verb must reject instead of posting.
+func TestRunSignal_LeftoverPositionalRejected(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+		"-class", "correctness", "stray", "-dedup", "a.go:Sym")
+	if rc != 1 {
+		t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+	}
+	want := `signal issue-intent rejected (usage): unexpected argument "stray"; quote multi-word values`
+	if got := lastNonEmptyLine(out); got != want {
+		t.Fatalf("last line = %q, want %q (full out=%q)", got, want, out)
+	}
+	if n := len(srv.buf.IssueIntents()); n != 0 {
+		t.Fatalf("a stray positional sent %d intents, want 0", n)
+	}
+}
+
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
 // lands on the kind's usage route with the reason as its body and the TCP
 // secret header, and an unrecognised kind word never reaches the wire -- it
