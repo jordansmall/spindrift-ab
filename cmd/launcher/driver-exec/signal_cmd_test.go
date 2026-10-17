@@ -1012,6 +1012,26 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			args: []string{"nope"},
 			want: "signal rejected (usage): unknown signal kind; want one of comment, pr-intent, issue-intent, status",
 		},
+		{
+			name: "stray positional before flags",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote a multi-word value`,
+		},
+		{
+			name: "comment stray positional",
+			args: []string{"comment", "stray"},
+			want: `signal comment rejected (usage): unexpected argument "stray"; quote a multi-word value`,
+		},
+		{
+			name: "pr-intent stray positional",
+			args: []string{"pr-intent", "stray"},
+			want: `signal pr-intent rejected (usage): unexpected argument "stray"; quote a multi-word value`,
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "stray"},
+			want: `signal status rejected (usage): unexpected argument "stray"; quote a multi-word value`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
