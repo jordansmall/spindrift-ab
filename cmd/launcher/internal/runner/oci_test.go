@@ -1823,22 +1823,12 @@ func TestRegistryProxyTransport_BothNoVerdict_NeverCached(t *testing.T) {
 func TestRegistryProxyTransport_ProbeTimesOut_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-cli")
-	callsFile := filepath.Join(dir, "calls.txt")
-	// The echo records the call before exec replaces this shell with sleep
-	// itself, so killing the *exec.Cmd's PID on timeout kills the sleeper
-	// immediately instead of leaving an orphaned child holding the
-	// CombinedOutput pipe open until it finishes on its own.
-	if err := os.WriteFile(script, []byte(fmt.Sprintf(
-		"#!/bin/sh\necho ok >> %q\nexec sleep 5\n", callsFile,
-	)), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	orig := registryProxyProbeTimeout
-	// The budget must outlast the fake CLI's fork/exec, not merely be short:
-	// a deadline that fires before the shell reaches its echo destroys the
-	// call record counted below. 20ms lost a probe that way under CI load.
-	registryProxyProbeTimeout = 250 * time.Millisecond
+	registryProxyProbeTimeout = 20 * time.Millisecond
 	t.Cleanup(func() { registryProxyProbeTimeout = orig })
 
 	a := &ociAdapter{cli: script, image: "spindrift:test"}
@@ -1849,15 +1839,15 @@ func TestRegistryProxyTransport_ProbeTimesOut_ReturnsError(t *testing.T) {
 	if endpoint.IsUnix() {
 		t.Error("RegistryProxyTransport: want a non-unix endpoint when the probe times out")
 	}
-	if !strings.Contains(err.Error(), registryProxyProbeTimeout.String()) {
-		t.Errorf("RegistryProxyTransport: error %q should mention the timeout duration %s", err, registryProxyProbeTimeout)
+	// The error chain, not a call record the fake CLI writes, witnesses the
+	// control probe: a deadline can fire before the shell runs at all, which
+	// lost such a record under CI load.
+	timedOut := "timed out after " + registryProxyProbeTimeout.String()
+	if got := strings.Count(err.Error(), timedOut); got != 2 {
+		t.Errorf("RegistryProxyTransport: error %q names %q %d times, want 2: a socket-probe timeout must run the control probe too", err, timedOut, got)
 	}
-	raw, readErr := os.ReadFile(callsFile)
-	if readErr != nil {
-		t.Fatalf("calls.txt not written: %v", readErr)
-	}
-	if got := strings.Count(string(raw), "ok\n"); got != 2 {
-		t.Errorf("call count = %d, want 2: a socket-probe timeout must run the control probe too", got)
+	if !strings.Contains(err.Error(), "control probe without the socket mount also produced no verdict") {
+		t.Errorf("RegistryProxyTransport: error %q should name the control probe", err)
 	}
 }
 
