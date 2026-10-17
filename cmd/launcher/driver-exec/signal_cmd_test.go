@@ -900,6 +900,16 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
 		}
 	})
+
+	t.Run("stray positional before later flags", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if !strings.Contains(out, `"stray"`) || !strings.Contains(out, "quote") {
+			t.Fatalf("output = %q, want the stray token named and a quoting hint", out)
+		}
+	})
 }
 
 func TestRunSignal_EndpointErrors(t *testing.T) {
@@ -1001,6 +1011,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "issue-intent missing type",
 			args: []string{"issue-intent", "-title", "t"},
 			want: "signal issue-intent rejected (usage): -type is required",
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "stray", "-dedup", "a"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote a multi-word flag value`,
 		},
 		{
 			name: "no args",
