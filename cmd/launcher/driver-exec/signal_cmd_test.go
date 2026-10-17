@@ -1276,3 +1276,46 @@ func TestRawFields(t *testing.T) {
 		rawFields(badWire{Count: 1})
 	})
 }
+
+// TestRunSignal_StrayPositionalRejected pins that a leftover positional (Go's
+// flag package stops at the first one, silently dropping later flags) is a
+// usage failure naming the token on every verb, and that only a usage report
+// reaches the host.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	cases := [][]string{
+		{"comment", "stray", "-body-file", "b.md"},
+		{"pr-intent", "-title", "a pr title", "stray", "-body-file", "b.md"},
+		{"issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff"},
+		{"status", "stray"},
+	}
+	for _, args := range cases {
+		verb := args[0]
+		t.Run(verb, func(t *testing.T) {
+			srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+			rc, out := runVerb(t, "a body", args...)
+			if rc != 1 {
+				t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+			}
+			last := lastNonEmptyLine(out)
+			if !strings.HasPrefix(last, "signal "+verb+" rejected (usage):") || !strings.Contains(last, `"stray"`) {
+				t.Fatalf("last line = %q, want a usage rejection naming \"stray\"", last)
+			}
+			usage := 0
+			for _, line := range strings.Split(strings.TrimSpace(srv.log.String()), "\n") {
+				var ev hostop.Event
+				if err := json.Unmarshal([]byte(line), &ev); err != nil || ev.SpindriftOp == nil {
+					continue
+				}
+				if ev.SpindriftOp.Decision != "usage" {
+					t.Fatalf("op = %+v, want only a usage report, no intent", ev.SpindriftOp)
+				}
+				usage++
+			}
+			if usage == 0 {
+				t.Fatalf("no usage report in host log %q", srv.log.String())
+			}
+		})
+	}
+}
