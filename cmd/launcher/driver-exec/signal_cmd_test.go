@@ -1026,6 +1026,33 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 	}
 }
 
+// TestRunSignal_LeftoverPositionalRejected pins that a stray positional token
+// is a usage failure: flag parsing stops at it, so accepting it would silently
+// drop every flag after it (here -dedup).
+func TestRunSignal_LeftoverPositionalRejected(t *testing.T) {
+	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	cases := []struct {
+		kind string
+		args []string
+	}{
+		{"issue-intent", []string{"issue-intent", "-title", "Fix race", "-type", "bug", "stray", "-dedup", "a.go:Sym"}},
+		{"status", []string{"status", "stray"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			rc, out := runVerb(t, "a body", tc.args...)
+			want := "signal " + tc.kind + ` rejected (usage): unexpected argument "stray"; quote a multi-word flag value`
+			if rc == 0 {
+				t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+			}
+			if got := lastNonEmptyLine(out); got != want {
+				t.Fatalf("last line = %q, want %q (full out=%q)", got, want, out)
+			}
+		})
+	}
+}
+
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
 // lands on the kind's usage route with the reason as its body and the TCP
 // secret header, and an unrecognised kind word never reaches the wire -- it
