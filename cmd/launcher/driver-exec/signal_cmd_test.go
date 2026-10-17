@@ -1026,6 +1026,30 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 	}
 }
 
+// TestRunSignal_StrayPositionalRejected pins that a stray positional is a
+// usage failure: Go's flag package stops at the first non-flag argument, so
+// without the check every flag after it (here -dedup) would be silently
+// dropped and the intent posted anyway.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	want := `signal issue-intent rejected (usage): unexpected argument "stray": signal kinds take no positional arguments; quote a multi-word flag value`
+	for _, strays := range [][]string{{"stray"}, {"stray", "more"}} {
+		args := append([]string{"issue-intent", "-title", "Fix race", "-type", "bug"}, strays...)
+		args = append(args, "-dedup", "a.go:Sym")
+		rc, out := runVerb(t, "issue body", args...)
+		if rc != 1 {
+			t.Fatalf("strays %q: exit = %d, want 1 (out=%q)", strays, rc, out)
+		}
+		if got := lastNonEmptyLine(out); got != want {
+			t.Fatalf("strays %q: last line = %q, want %q (full out=%q)", strays, got, want, out)
+		}
+	}
+	if got := srv.buf.IssueIntents(); len(got) != 0 {
+		t.Fatalf("buffered issue intents = %+v, want none", got)
+	}
+}
+
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
 // lands on the kind's usage route with the reason as its body and the TCP
 // secret header, and an unrecognised kind word never reaches the wire -- it
