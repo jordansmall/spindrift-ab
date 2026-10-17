@@ -1003,6 +1003,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: "signal issue-intent rejected (usage): unexpected argument \"stray\"; takes flags only; quote a multi-word value",
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
@@ -1040,6 +1045,9 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 		if rc, _ := runVerb(t, "", "nope"); rc == 0 {
 			t.Fatal("exit = 0, want non-zero")
 		}
+		if rc, _ := runVerb(t, "", "issue-intent", "-title", "t", "stray", "-dedup", "a.go:Sym"); rc == 0 {
+			t.Fatal("exit = 0, want non-zero")
+		}
 
 		var ops []hostop.SpindriftOp
 		for _, line := range strings.Split(strings.TrimSpace(srv.log.String()), "\n") {
@@ -1052,7 +1060,7 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 			}
 			ops = append(ops, *ev.SpindriftOp)
 		}
-		if len(ops) != 2 {
+		if len(ops) != 3 {
 			t.Fatalf("mirrored %d ops, want one per usage report: %+v", len(ops), ops)
 		}
 		if ops[0].Decision != "usage" || ops[0].Kind != "comment" || !strings.Contains(ops[0].Reason, "-nonce") {
@@ -1064,6 +1072,9 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 		// reach the wire at all.
 		if ops[1].Decision != "usage" || ops[1].Kind != "unknown" {
 			t.Fatalf("unrecognised-kind usage op = %+v, want the kindless route, never the agent's word", ops[1])
+		}
+		if ops[2].Decision != "usage" || ops[2].Kind != "issue-intent" || !strings.Contains(ops[2].Reason, `"stray"`) {
+			t.Fatalf("stray-positional usage op = %+v, want kind issue-intent and the leftover token as reason", ops[2])
 		}
 	})
 }
