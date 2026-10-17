@@ -900,6 +900,24 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
 		}
 	})
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"stray positional before later flags", []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"}},
+		{"trailing stray positional", []string{"issue-intent", "-title", "t", "-type", "bug", "stray"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, out := runVerb(t, "a body", tc.args...)
+			if rc != 1 {
+				t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+			}
+			if !strings.Contains(out, `"stray"`) || !strings.Contains(out, "quote") {
+				t.Fatalf("output = %q, want the leftover token named and a quoting hint", out)
+			}
+		})
+	}
 }
 
 func TestRunSignal_EndpointErrors(t *testing.T) {
