@@ -900,6 +900,23 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
 		}
 	})
+
+	t.Run("issue-intent stray positional before dedup", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if !strings.Contains(out, `"stray"`) || !strings.Contains(out, "quote") {
+			t.Fatalf("output = %q, want the stray token named and a quoting hint", out)
+		}
+	})
+
+	t.Run("pr-intent stray positional", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "pr-intent", "-title", "t", "stray")
+		if rc != 1 || !strings.Contains(out, `"stray"`) {
+			t.Fatalf("exit = %d, out = %q, want 1 naming the stray token", rc, out)
+		}
+	})
 }
 
 func TestRunSignal_EndpointErrors(t *testing.T) {
