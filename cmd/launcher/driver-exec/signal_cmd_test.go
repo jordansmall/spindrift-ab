@@ -965,7 +965,7 @@ func lastNonEmptyLine(s string) string {
 // (usage): <reason>", in the same shape as a server rejection, whatever kind
 // word (or none, or an unrecognised one) the agent gave.
 func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
-	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
 
 	cases := []struct {
 		name string
@@ -991,6 +991,16 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "status unknown flag",
 			args: []string{"status", "-nonce", "x"},
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": no positional arguments are taken; quote a multi-word flag value`,
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "stray"},
+			want: `signal status rejected (usage): unexpected argument "stray": no positional arguments are taken; quote a multi-word flag value`,
 		},
 		{
 			name: "pr-intent missing title",
@@ -1023,6 +1033,18 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 				t.Fatalf("last line = %q, want %q (full out=%q)", got, tc.want, out)
 			}
 		})
+	}
+
+	// Only usage reports reach the wire: a stray positional must not let an
+	// intent through with its later flags dropped.
+	for _, line := range strings.Split(strings.TrimSpace(srv.log.String()), "\n") {
+		var ev hostop.Event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("mirror line %q is not an event: %v", line, err)
+		}
+		if ev.SpindriftOp == nil || ev.SpindriftOp.Decision != "usage" {
+			t.Fatalf("mirror line %q is not a usage report", line)
+		}
 	}
 }
 
