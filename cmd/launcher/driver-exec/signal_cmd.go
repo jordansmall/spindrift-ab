@@ -181,8 +181,9 @@ func classListViolation(class string, classes []string) string {
 	return fmt.Sprintf("-class %q is not on this Chore's class list; pick one of: %s", class, valid)
 }
 
-// parseSignalFlags parses rest with fs and routes a parse failure through the
-// usage-failure path (report + final rejected line) -- except an explicit
+// parseSignalFlags parses rest with fs and routes a parse failure, or any
+// leftover positional argument, through the usage-failure path (report + final
+// rejected line) -- except an explicit
 // -h/-help, which is a request, not a failure, so it keeps the plain dump and
 // exit 1 with no report. On ok=false the caller must return 1 immediately;
 // fs has already written its own error and usage dump to stdout before either
@@ -193,6 +194,12 @@ func parseSignalFlags(fs *flag.FlagSet, rest []string, kind string, stdout io.Wr
 			return false
 		}
 		signalUsageFailure(stdout, kind, err.Error())
+		return false
+	}
+	// flag stops at the first non-flag token, silently dropping every flag
+	// after it; no verb takes positionals, so any leftover is a usage error.
+	if fs.NArg() > 0 {
+		signalUsageFailure(stdout, kind, fmt.Sprintf("unexpected argument %q (flags after it were not parsed); quote multi-word values", fs.Arg(0)))
 		return false
 	}
 	return true

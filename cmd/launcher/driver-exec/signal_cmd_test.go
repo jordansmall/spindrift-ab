@@ -900,6 +900,21 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
 		}
 	})
+
+	// flag stops at the first non-flag token, so without a leftover check the
+	// trailing -dedup would be silently dropped and the signal sent anyway.
+	t.Run("stray positional before -dedup", func(t *testing.T) {
+		rc, out := runVerb(t, "body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		for _, want := range []string{"stray", "quot", "rejected (usage)"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("output = %q, want it to contain %q", out, want)
+			}
+		}
+	})
 }
 
 func TestRunSignal_EndpointErrors(t *testing.T) {
