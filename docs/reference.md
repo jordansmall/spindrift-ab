@@ -4838,7 +4838,9 @@ is taken; a non-zero exit
 prints `signal <kind> rejected (<status>): <reason>` and the signal was
 NOT taken, so the agent can never mistake a rejection for success. A
 usage failure the verb catches itself — an unknown flag, a missing
-`-title` or `-type` — ends on that same shape, `signal <kind> rejected
+`-title` or `-type`, a stray positional argument (an unquoted
+multi-word value, which would otherwise silently drop every flag after
+it) — ends on that same shape, `signal <kind> rejected
 (usage): <reason>`, after any usage dump, so it survives a truncating
 pipe; the verb also reports it on the socket's diagnostics-only
 `/<kind>/usage` route, which the host only mirrors into the driver log
