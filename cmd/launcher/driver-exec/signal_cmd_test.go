@@ -993,6 +993,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
 		},
 		{
+			name: "issue-intent stray positional before later flags",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; signal verbs take no positional arguments, quote a multi-word value`,
+		},
+		{
 			name: "pr-intent missing title",
 			args: []string{"pr-intent"},
 			want: "signal pr-intent rejected (usage): -title is required",
@@ -1066,6 +1071,33 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 			t.Fatalf("unrecognised-kind usage op = %+v, want the kindless route, never the agent's word", ops[1])
 		}
 	})
+}
+
+// TestRunSignal_StrayPositionalReportsUsageNotIntent pins that a leftover
+// positional fails before anything is posted: the only thing the server sees
+// is the kind's usage report, never an issue-intent.
+func TestRunSignal_StrayPositionalReportsUsageNotIntent(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+	if rc == 0 {
+		t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+	}
+
+	var ops []hostop.SpindriftOp
+	for _, line := range strings.Split(strings.TrimSpace(srv.log.String()), "\n") {
+		var ev hostop.Event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("mirror line %q is not an event: %v", line, err)
+		}
+		ops = append(ops, *ev.SpindriftOp)
+	}
+	if len(ops) != 1 {
+		t.Fatalf("mirrored %d ops, want only the usage report: %+v", len(ops), ops)
+	}
+	if ops[0].Decision != "usage" || ops[0].Kind != "issue-intent" || !strings.Contains(ops[0].Reason, `"stray"`) {
+		t.Fatalf("op = %+v, want an issue-intent usage report naming the stray token", ops[0])
+	}
 }
 
 // TestRunSignal_UsageReportTruncatesOversizeReason exercises the real
