@@ -869,7 +869,7 @@ func TestRunSignal_NoRouteAcceptsADestination(t *testing.T) {
 }
 
 func TestRunSignal_UsageErrors(t *testing.T) {
-	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
 
 	t.Run("unknown kind", func(t *testing.T) {
 		rc, out := runVerb(t, "", "nope")
@@ -898,6 +898,19 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 	t.Run("issue-intent without type", func(t *testing.T) {
 		if rc, out := runVerb(t, "a body", "issue-intent", "-title", "t"); rc != 1 {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+	})
+
+	t.Run("leftover positional argument", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if !strings.Contains(out, "stray") || !strings.Contains(out, "quote multi-word values") {
+			t.Fatalf("output = %q, want the rejection to name %q and hint at quoting", out, "stray")
+		}
+		if n := len(srv.buf.IssueIntents()); n != 0 {
+			t.Fatalf("issue intents posted = %d, want 0 for a usage failure", n)
 		}
 	})
 }
