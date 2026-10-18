@@ -1012,6 +1012,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			args: []string{"nope"},
 			want: "signal rejected (usage): unknown signal kind; want one of comment, pr-intent, issue-intent, status",
 		},
+		{
+			name: "stray positional before flag",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": signal issue-intent takes no positional arguments; quote a multi-word flag value`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1024,6 +1029,27 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunSignal_StrayPositionalPostsNothing asserts that Go's flag package
+// stopping at a stray positional fails the verb outright rather than silently
+// dropping the flags after it, so no intent reaches the wire.
+func TestRunSignal_StrayPositionalPostsNothing(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("rc = %d, want 1 (out=%q)", rc, out)
+		}
+		if !strings.Contains(out, `"stray"`) {
+			t.Errorf("out = %q, want it to name the stray token", out)
+		}
+		if n := len(srv.buf.IssueIntents()); n != 0 {
+			t.Fatalf("a stray positional posted %d intents, want 0", n)
+		}
+	})
 }
 
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
