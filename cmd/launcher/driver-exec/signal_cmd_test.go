@@ -1276,3 +1276,25 @@ func TestRawFields(t *testing.T) {
 		rawFields(badWire{Count: 1})
 	})
 }
+
+// TestRunSignal_StrayPositionalRejected pins that a stray positional (e.g. an
+// unquoted multi-word value) fails as usage instead of silently dropping
+// every flag after it.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+		rc, out := runVerb(t, "body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		line := lastNonEmptyLine(out)
+		if !strings.HasPrefix(line, "signal issue-intent rejected (usage): ") ||
+			!strings.Contains(line, `"stray"`) || !strings.Contains(line, "quote") {
+			t.Errorf("last line = %q", line)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Errorf("issue intents = %+v, want none", got)
+		}
+	})
+}
