@@ -1003,6 +1003,26 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "/nonexistent/p.diff"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; no positional arguments accepted (quote a multi-word flag value)`,
+		},
+		{
+			name: "comment stray positional",
+			args: []string{"comment", "stray", "-body-file", "/nonexistent/b.md"},
+			want: `signal comment rejected (usage): unexpected argument "stray"; no positional arguments accepted (quote a multi-word flag value)`,
+		},
+		{
+			name: "pr-intent stray positional",
+			args: []string{"pr-intent", "-title", "t", "stray"},
+			want: `signal pr-intent rejected (usage): unexpected argument "stray"; no positional arguments accepted (quote a multi-word flag value)`,
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "foo"},
+			want: `signal status rejected (usage): unexpected argument "foo"; no positional arguments accepted (quote a multi-word flag value)`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
