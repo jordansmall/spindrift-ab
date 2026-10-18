@@ -506,6 +506,22 @@ func TestRunSignal_IssueIntentDedupTerms(t *testing.T) {
 	})
 }
 
+// TestRunSignal_RejectsStrayPositional pins that a leftover positional is a
+// usage failure rather than silently dropping every flag after it.
+func TestRunSignal_RejectsStrayPositional(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "body", "issue-intent", "-title", "x", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("issue-intent exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Errorf("issue intents = %+v, want none", got)
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentClassAndConcurrence pins -class/-concurrence
 // (issue #3880): both are optional, and each lands in the buffered intent's
 // matching field unaltered.
@@ -991,6 +1007,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "status unknown flag",
 			args: []string{"status", "-nonce", "x"},
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "x", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray" (quote multi-word flag values)`,
 		},
 		{
 			name: "pr-intent missing title",
