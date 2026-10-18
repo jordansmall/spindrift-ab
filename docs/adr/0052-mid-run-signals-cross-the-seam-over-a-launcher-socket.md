@@ -240,8 +240,8 @@ log carrier as a third mechanism the eventual socket would then tear out.
 
 ## Amendment (issue #3867): a diagnostics-only usage route
 
-A `driver-exec signal` usage failure — an unknown flag, a missing
-`-title` — dies in the Box before any request is made, so the
+A `driver-exec signal` usage failure — an unknown flag, a stray positional
+argument, a missing `-title` — dies in the Box before any request is made, so the
 one-event-per-request mirror never saw it, and an agent piping the send
 through `tail` often never saw it either. The verb now ends every such
 failure with a line in the reject shape, `signal <kind> rejected (usage):

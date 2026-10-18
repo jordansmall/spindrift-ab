@@ -900,6 +900,17 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
 		}
 	})
+
+	t.Run("stray positional before -dedup", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if !strings.Contains(out, `rejected (usage): unexpected argument "stray"`) || !strings.Contains(out, "quote") {
+			t.Fatalf("output = %q, want the leftover token named and a quoting hint", out)
+		}
+	})
 }
 
 func TestRunSignal_EndpointErrors(t *testing.T) {
