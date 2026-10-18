@@ -988,6 +988,16 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): flag provided but not defined: -nonce",
 		},
 		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; flags only, quote values containing spaces`,
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "stray"},
+			want: `signal status rejected (usage): unexpected argument "stray"; flags only, quote values containing spaces`,
+		},
+		{
 			name: "status unknown flag",
 			args: []string{"status", "-nonce", "x"},
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
