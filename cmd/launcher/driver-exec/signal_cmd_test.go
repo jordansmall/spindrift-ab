@@ -1026,6 +1026,23 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 	}
 }
 
+// TestRunSignal_StrayPositionalArgRejected pins that a multi-word value split
+// by the shell leaves a positional token that flag.Parse would silently stop
+// at, dropping every later flag; it must be a usage failure naming the token.
+func TestRunSignal_StrayPositionalArgRejected(t *testing.T) {
+	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	rc, out := runVerb(t, "", "issue-intent", "-title", "Fix race", "-type", "bug",
+		"-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff")
+	if rc == 0 {
+		t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+	}
+	const want = `signal issue-intent rejected (usage): unexpected argument "stray"; quote multi-word values`
+	if got := lastNonEmptyLine(out); got != want {
+		t.Fatalf("last line = %q, want %q", got, want)
+	}
+}
+
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
 // lands on the kind's usage route with the reason as its body and the TCP
 // secret header, and an unrecognised kind word never reaches the wire -- it
