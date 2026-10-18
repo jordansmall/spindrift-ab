@@ -993,6 +993,16 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
 		},
 		{
+			name: "issue-intent stray positional before -dedup rejected",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray" (a multi-word value needs quoting)`,
+		},
+		{
+			name: "comment stray positional",
+			args: []string{"comment", "stray"},
+			want: `signal comment rejected (usage): unexpected argument "stray" (a multi-word value needs quoting)`,
+		},
+		{
 			name: "pr-intent missing title",
 			args: []string{"pr-intent"},
 			want: "signal pr-intent rejected (usage): -title is required",
