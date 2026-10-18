@@ -988,6 +988,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): flag provided but not defined: -nonce",
 		},
 		{
+			name: "issue-intent stray positional after flags",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote multi-word values`,
+		},
+		{
 			name: "status unknown flag",
 			args: []string{"status", "-nonce", "x"},
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
@@ -1040,6 +1045,9 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 		if rc, _ := runVerb(t, "", "nope"); rc == 0 {
 			t.Fatal("exit = 0, want non-zero")
 		}
+		if rc, _ := runVerb(t, "a body", "issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"); rc == 0 {
+			t.Fatal("exit = 0, want non-zero")
+		}
 
 		var ops []hostop.SpindriftOp
 		for _, line := range strings.Split(strings.TrimSpace(srv.log.String()), "\n") {
@@ -1052,7 +1060,7 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 			}
 			ops = append(ops, *ev.SpindriftOp)
 		}
-		if len(ops) != 2 {
+		if len(ops) != 3 {
 			t.Fatalf("mirrored %d ops, want one per usage report: %+v", len(ops), ops)
 		}
 		if ops[0].Decision != "usage" || ops[0].Kind != "comment" || !strings.Contains(ops[0].Reason, "-nonce") {
@@ -1064,6 +1072,11 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 		// reach the wire at all.
 		if ops[1].Decision != "usage" || ops[1].Kind != "unknown" {
 			t.Fatalf("unrecognised-kind usage op = %+v, want the kindless route, never the agent's word", ops[1])
+		}
+		// A stray positional is rejected before any post: the only op the
+		// server sees is the usage report, never an issue-intent.
+		if ops[2].Decision != "usage" || ops[2].Kind != "issue-intent" || !strings.Contains(ops[2].Reason, `"stray"`) {
+			t.Fatalf("stray-positional op = %+v, want an issue-intent usage report naming the token", ops[2])
 		}
 	})
 }
