@@ -506,6 +506,39 @@ func TestRunSignal_IssueIntentDedupTerms(t *testing.T) {
 	})
 }
 
+// TestRunSignal_StrayPositionalRejected pins that a leftover positional is a
+// usage failure: flag parsing stops at it, so the -dedup after it would
+// otherwise be dropped silently and the intent buffered without it.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "x", "-type", "bug",
+			"stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("issue-intent exit = %d, want 1 (out=%q)", rc, out)
+		}
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		last := lines[len(lines)-1]
+		if !strings.HasPrefix(last, "signal issue-intent rejected (usage):") {
+			t.Errorf("last line = %q, want a usage rejection", last)
+		}
+		if !strings.Contains(last, `"stray"`) || !strings.Contains(last, "must be quoted") {
+			t.Errorf("last line = %q, want it to name \"stray\" and hint at quoting", last)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Errorf("issue intents = %+v, want none", got)
+		}
+
+		// The guard sits in the shared helper, so a verb that takes no
+		// flags at all rejects a trailing token too.
+		rc, out = runVerb(t, "", "status", "stray")
+		if rc != 1 || !strings.Contains(out, "signal status rejected (usage):") {
+			t.Errorf("status exit = %d, out = %q, want 1 and a usage rejection", rc, out)
+		}
+	})
+}
+
 // TestRunSignal_IssueIntentClassAndConcurrence pins -class/-concurrence
 // (issue #3880): both are optional, and each lands in the buffered intent's
 // matching field unaltered.
