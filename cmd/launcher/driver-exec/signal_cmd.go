@@ -195,6 +195,12 @@ func parseSignalFlags(fs *flag.FlagSet, rest []string, kind string, stdout io.Wr
 		signalUsageFailure(stdout, kind, err.Error())
 		return false
 	}
+	// flag stops at the first non-flag token and reports success, silently
+	// dropping every flag after it; no verb takes positionals, so reject.
+	if fs.NArg() > 0 {
+		signalUsageFailure(stdout, kind, fmt.Sprintf("unexpected argument %q: this verb takes no positional arguments; quote a multi-word flag value, e.g. -flag 'two words'", fs.Arg(0)))
+		return false
+	}
 	return true
 }
 

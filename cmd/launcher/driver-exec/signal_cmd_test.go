@@ -1026,6 +1026,42 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 	}
 }
 
+// TestRunSignal_StrayPositionalRejected pins issue #5297: flag stops at the
+// first non-flag token, so a stray positional used to drop every later flag
+// and exit 0. The reason names the first leftover token; the hint's wording is
+// left unpinned.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "issue-intent stray before -dedup",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "/nonexistent"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"`,
+		},
+		{
+			name: "comment",
+			args: []string{"comment", "extra"},
+			want: `signal comment rejected (usage): unexpected argument "extra"`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, out := runVerb(t, "a body", tc.args...)
+			if rc == 0 {
+				t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+			}
+			if got := lastNonEmptyLine(out); !strings.HasPrefix(got, tc.want) {
+				t.Fatalf("last line = %q, want prefix %q (full out=%q)", got, tc.want, out)
+			}
+		})
+	}
+}
+
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
 // lands on the kind's usage route with the reason as its body and the TCP
 // secret header, and an unrecognised kind word never reaches the wire -- it
