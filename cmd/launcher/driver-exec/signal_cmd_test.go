@@ -883,6 +883,27 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("stray positional before flags", func(t *testing.T) {
+		srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if !strings.Contains(out, "stray") {
+			t.Fatalf("output = %q, want it to name the stray token", out)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Fatalf("issue intents = %+v, want none recorded", got)
+		}
+	})
+
+	t.Run("stray positional on status", func(t *testing.T) {
+		if rc, out := runVerb(t, "", "status", "stray"); rc != 1 || !strings.Contains(out, "stray") {
+			t.Fatalf("exit = %d, out = %q, want 1 naming the stray token", rc, out)
+		}
+	})
+
 	t.Run("no kind", func(t *testing.T) {
 		if rc, out := runVerb(t, ""); rc != 1 {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
