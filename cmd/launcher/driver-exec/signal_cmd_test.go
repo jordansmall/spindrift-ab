@@ -900,6 +900,42 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
 		}
 	})
+
+	t.Run("issue-intent with stray positional", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		for _, want := range []string{"signal issue-intent rejected (usage)", `"stray"`, "quot"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("out missing %q: %q", want, out)
+			}
+		}
+		if strings.Contains(out, "required") {
+			t.Errorf("rejected downstream, not by the positional: %q", out)
+		}
+	})
+
+	// Every verb parses through parseSignalFlags, so the rejection is not
+	// issue-intent's alone.
+	for verb, flags := range map[string][]string{
+		"comment":   {"-body-file", "-"},
+		"pr-intent": {"-title", "t"},
+		"status":    nil,
+	} {
+		t.Run(verb+" with stray positional", func(t *testing.T) {
+			rc, out := runVerb(t, "a body", append(append([]string{verb}, flags...), "stray")...)
+			if rc != 1 {
+				t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+			}
+			for _, want := range []string{"signal " + verb + " rejected (usage)", `"stray"`} {
+				if !strings.Contains(out, want) {
+					t.Errorf("out missing %q: %q", want, out)
+				}
+			}
+		})
+	}
 }
 
 func TestRunSignal_EndpointErrors(t *testing.T) {
