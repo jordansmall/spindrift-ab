@@ -1003,6 +1003,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": signal issue-intent takes no positional arguments; quote a multi-word flag value`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
@@ -1023,6 +1028,20 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 				t.Fatalf("last line = %q, want %q (full out=%q)", got, tc.want, out)
 			}
 		})
+	}
+}
+
+// TestRunSignal_StrayPositionalRejected asserts nothing is buffered: the stray
+// token must stop the verb before it posts an intent with -dedup lost.
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	rc, out := runVerb(t, "body", "issue-intent", "-title", "t", "-type", "bug",
+		"stray", "-dedup", "a.go:Sym")
+	if rc != 1 {
+		t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+	}
+	if got := srv.buf.IssueIntents(); len(got) != 0 {
+		t.Errorf("buffered %d issue intents, want 0", len(got))
 	}
 }
 
