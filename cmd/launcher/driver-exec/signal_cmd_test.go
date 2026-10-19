@@ -965,7 +965,7 @@ func lastNonEmptyLine(s string) string {
 // (usage): <reason>", in the same shape as a server rejection, whatever kind
 // word (or none, or an unrecognised one) the agent gave.
 func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
-	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
 
 	cases := []struct {
 		name string
@@ -1003,6 +1003,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional before -dedup",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray"; quote a multi-word flag value`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
@@ -1023,6 +1028,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 				t.Fatalf("last line = %q, want %q (full out=%q)", got, tc.want, out)
 			}
 		})
+	}
+	// The stray-positional case must not send its intent minus the flags
+	// it never parsed.
+	if n := len(srv.buf.IssueIntents()); n != 0 {
+		t.Fatalf("buffered %d issue intents, want 0", n)
 	}
 }
 
