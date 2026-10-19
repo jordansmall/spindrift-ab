@@ -869,7 +869,7 @@ func TestRunSignal_NoRouteAcceptsADestination(t *testing.T) {
 }
 
 func TestRunSignal_UsageErrors(t *testing.T) {
-	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
 
 	t.Run("unknown kind", func(t *testing.T) {
 		rc, out := runVerb(t, "", "nope")
@@ -898,6 +898,31 @@ func TestRunSignal_UsageErrors(t *testing.T) {
 	t.Run("issue-intent without type", func(t *testing.T) {
 		if rc, out := runVerb(t, "a body", "issue-intent", "-title", "t"); rc != 1 {
 			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+	})
+
+	t.Run("stray positional argument", func(t *testing.T) {
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"stray", "-dedup", "a.go:Sym")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		last := lastNonEmptyLine(out)
+		if !strings.Contains(last, "rejected (usage)") || !strings.Contains(last, `"stray"`) {
+			t.Fatalf("last line = %q, want a usage rejection naming %q", last, "stray")
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Fatalf("issue intents = %+v, want none buffered", got)
+		}
+	})
+
+	t.Run("status with stray positional argument", func(t *testing.T) {
+		rc, out := runVerb(t, "", "status", "stray")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		if last := lastNonEmptyLine(out); !strings.Contains(last, "rejected (usage)") || !strings.Contains(last, `"stray"`) {
+			t.Fatalf("last line = %q, want a usage rejection naming %q", last, "stray")
 		}
 	})
 }
