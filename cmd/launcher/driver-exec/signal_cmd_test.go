@@ -998,6 +998,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal pr-intent rejected (usage): -title is required",
 		},
 		{
+			name: "issue-intent stray positional before dedup",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "-class", "correctness", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": takes no positional arguments; quote a multi-word flag value`,
+		},
+		{
 			name: "issue-intent missing type",
 			args: []string{"issue-intent", "-title", "t"},
 			want: "signal issue-intent rejected (usage): -type is required",
@@ -1040,6 +1045,12 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 		if rc, _ := runVerb(t, "", "nope"); rc == 0 {
 			t.Fatal("exit = 0, want non-zero")
 		}
+		if rc, _ := runVerb(t, "", "issue-intent", "-title", "Fix race", "-type", "bug", "stray", "-dedup", "a.go:Sym"); rc == 0 {
+			t.Fatal("exit = 0, want non-zero")
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Fatalf("buffered %d issue intents, want none: the stray positional must hit the usage route", len(got))
+		}
 
 		var ops []hostop.SpindriftOp
 		for _, line := range strings.Split(strings.TrimSpace(srv.log.String()), "\n") {
@@ -1052,7 +1063,7 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 			}
 			ops = append(ops, *ev.SpindriftOp)
 		}
-		if len(ops) != 2 {
+		if len(ops) != 3 {
 			t.Fatalf("mirrored %d ops, want one per usage report: %+v", len(ops), ops)
 		}
 		if ops[0].Decision != "usage" || ops[0].Kind != "comment" || !strings.Contains(ops[0].Reason, "-nonce") {
@@ -1064,6 +1075,9 @@ func TestRunSignal_UsageFailureReportsOverSocket(t *testing.T) {
 		// reach the wire at all.
 		if ops[1].Decision != "usage" || ops[1].Kind != "unknown" {
 			t.Fatalf("unrecognised-kind usage op = %+v, want the kindless route, never the agent's word", ops[1])
+		}
+		if ops[2].Decision != "usage" || ops[2].Kind != "issue-intent" || !strings.Contains(ops[2].Reason, "unexpected argument") {
+			t.Fatalf("stray-positional usage op = %+v, want kind issue-intent and the unexpected-argument reason", ops[2])
 		}
 	})
 }
