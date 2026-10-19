@@ -993,6 +993,26 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal status rejected (usage): flag provided but not defined: -nonce",
 		},
 		{
+			name: "comment stray positional",
+			args: []string{"comment", "stray"},
+			want: `signal comment rejected (usage): unexpected argument "stray" (quote a multi-word flag value)`,
+		},
+		{
+			name: "pr-intent stray positional",
+			args: []string{"pr-intent", "-title", "t", "stray"},
+			want: `signal pr-intent rejected (usage): unexpected argument "stray" (quote a multi-word flag value)`,
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray" (quote a multi-word flag value)`,
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "stray"},
+			want: `signal status rejected (usage): unexpected argument "stray" (quote a multi-word flag value)`,
+		},
+		{
 			name: "pr-intent missing title",
 			args: []string{"pr-intent"},
 			want: "signal pr-intent rejected (usage): -title is required",
@@ -1024,6 +1044,28 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunSignal_IssueIntentStrayPositionalRejected: a stray token stops Go's
+// flag parsing, so without a leftover check -dedup and -patch-file after it
+// would be silently dropped and the intent sent with exit 0.
+func TestRunSignal_IssueIntentStrayPositionalRejected(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+			"-class", "correctness", "stray", "-dedup", "a.go:Sym", "-patch-file", "p.diff")
+		if rc != 1 {
+			t.Fatalf("exit = %d, want 1 (out=%q)", rc, out)
+		}
+		want := `signal issue-intent rejected (usage): unexpected argument "stray" (quote a multi-word flag value)`
+		if got := lastNonEmptyLine(out); got != want {
+			t.Fatalf("last line = %q, want %q (full out=%q)", got, want, out)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Fatalf("issue intents = %+v, want none buffered", got)
+		}
+	})
 }
 
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
