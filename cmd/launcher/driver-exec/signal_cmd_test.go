@@ -868,6 +868,17 @@ func TestRunSignal_NoRouteAcceptsADestination(t *testing.T) {
 	})
 }
 
+func TestRunSignal_StrayPositionalRejected(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+	// The rejected line itself is pinned in TestRunSignal_UsageFailureRejectedLine;
+	// this proves the intent never reached the socket.
+	runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug",
+		"-class", "correctness-bug", "stray", "-dedup", "a.go:Sym", "-patch-file", "/nonexistent")
+	if got := srv.buf.IssueIntents(); len(got) != 0 {
+		t.Fatalf("buffered %d issue intents, want 0", len(got))
+	}
+}
+
 func TestRunSignal_UsageErrors(t *testing.T) {
 	startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
 
@@ -1001,6 +1012,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			name: "issue-intent missing type",
 			args: []string{"issue-intent", "-title", "t"},
 			want: "signal issue-intent rejected (usage): -type is required",
+		},
+		{
+			name: "issue-intent stray positional",
+			args: []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": quote a multi-word flag value`,
 		},
 		{
 			name: "no args",
