@@ -1003,6 +1003,11 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional drops later flags",
+			args: []string{"issue-intent", "-title", "Fix race", "-type", "bug", "stray", "-dedup", "a.go:Sym"},
+			want: `signal issue-intent rejected (usage): unexpected argument "stray" (quote a multi-word value)`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
@@ -1024,6 +1029,23 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunSignal_StrayPositionalPostsNoIntent pins that a stray positional
+// stops the verb before the post: the flags after it are never parsed, so an
+// intent that reached the buffer would be missing its dedup terms.
+func TestRunSignal_StrayPositionalPostsNoIntent(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, transport string) {
+		srv := startSignalServer(t, transport, signalsocket.Config{Consumes: allKinds()})
+
+		rc, out := runVerb(t, "a body", "issue-intent", "-title", "Fix race", "-type", "bug", "stray", "-dedup", "a.go:Sym")
+		if rc == 0 {
+			t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+		}
+		if got := srv.buf.IssueIntents(); len(got) != 0 {
+			t.Fatalf("buffered %d issue intents, want none: %+v", len(got), got)
+		}
+	})
 }
 
 // TestRunSignal_UsageFailureReportsOverSocket asserts the report itself: it
