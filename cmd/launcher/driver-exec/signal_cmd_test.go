@@ -1003,6 +1003,26 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 			want: "signal issue-intent rejected (usage): -type is required",
 		},
 		{
+			name: "issue-intent stray positional before dedup",
+			args: strayPositionalIssueIntentArgs,
+			want: `signal issue-intent rejected (usage): unexpected argument "stray": signal verbs take no positional arguments (a multi-word flag value needs quoting)`,
+		},
+		{
+			name: "comment stray positional",
+			args: []string{"comment", "stray"},
+			want: `signal comment rejected (usage): unexpected argument "stray": signal verbs take no positional arguments (a multi-word flag value needs quoting)`,
+		},
+		{
+			name: "pr-intent stray positional",
+			args: []string{"pr-intent", "-title", "t", "stray"},
+			want: `signal pr-intent rejected (usage): unexpected argument "stray": signal verbs take no positional arguments (a multi-word flag value needs quoting)`,
+		},
+		{
+			name: "status stray positional",
+			args: []string{"status", "stray"},
+			want: `signal status rejected (usage): unexpected argument "stray": signal verbs take no positional arguments (a multi-word flag value needs quoting)`,
+		},
+		{
 			name: "no args",
 			args: nil,
 			want: "signal rejected (usage): want one of comment, pr-intent, issue-intent, status",
@@ -1023,6 +1043,25 @@ func TestRunSignal_UsageFailureRejectedLine(t *testing.T) {
 				t.Fatalf("last line = %q, want %q (full out=%q)", got, tc.want, out)
 			}
 		})
+	}
+}
+
+// strayPositionalIssueIntentArgs puts a stray word before -dedup, the flag
+// that would otherwise drop silently.
+var strayPositionalIssueIntentArgs = []string{"issue-intent", "-title", "t", "-type", "bug", "stray", "-dedup", "a.go:Sym"}
+
+// TestRunSignal_StrayPositionalBuffersNothing pins that a stray positional
+// stops the verb before it buffers anything: the flags after it (-dedup here)
+// never apply, so the intent must not reach the server.
+func TestRunSignal_StrayPositionalBuffersNothing(t *testing.T) {
+	srv := startSignalServer(t, "unix", signalsocket.Config{Consumes: allKinds()})
+
+	rc, out := runVerb(t, "a body", strayPositionalIssueIntentArgs...)
+	if rc == 0 {
+		t.Fatalf("exit = 0, want non-zero (out=%q)", out)
+	}
+	if got := srv.buf.IssueIntents(); len(got) != 0 {
+		t.Fatalf("issue intents = %+v, want none", got)
 	}
 }
 
