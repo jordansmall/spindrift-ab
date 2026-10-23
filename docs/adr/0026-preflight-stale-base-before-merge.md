@@ -3,6 +3,11 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended by issue #5053 (see
+> [Amendment](#amendment-issue-5053-a-red-force-pushed-head-gets-a-fix-pass)):**
+> a red CI result on the rebased tree now gets the red-CI fix pass before the
+> landing fails, rather than failing it at once.
 
 ## Context
 
@@ -128,3 +133,45 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+The Decision above says a CI failure on the rebased tree "demotes the same way
+a genuine red gate result always has", and the Consequences bullet on
+`TestMergeImmediate_StaleBaseCombinedBreakBlocksMerge` says a rebased tree
+failing CI "is blocked from merging". Those describe the behaviour before this
+amendment. Under `MERGE_MODE=immediate`, any head the Landing force-pushes now
+gets a fix pass when its re-wait ends red. That covers the stale-base preflight
+in this ADR, the reactive rebase-retry, and an agent-dispatched conflict-resolve
+Box. Previously a red re-wait settled the issue `Failed` (`landing-failed`) at
+once, with no fix attempt.
+
+The red head now goes through the same red-CI fix pass the pre-merge gate
+already runs, and that pass draws from the shared `MAX_FIX_ATTEMPTS` budget.
+A head the pass turns green re-enters the merge path exactly like a first-green
+head, with fresh rebase-retry and conflict-resolve budgets. The issue still ends
+`Failed` in three cases: the fix budget is spent (the comment reads
+`landing failed: ... head still red after N of M fix attempt(s), counting the
+pre-merge passes`, so the reader sees how much of the shared budget was used),
+the re-wait times out, or the conflict-resolve
+dispatch or its outbox relay fails. The last two get no fix pass, because
+neither leaves a red result for a fix Box to act on.
+
+The motivating case is GitHub issue #5053: a conflict-resolve force-push went
+red on `flakemodule-equivalence` and settled `landing-failed` 13 seconds later,
+with no fix pass. A red head after a force-push is the same genuine failure the
+pre-merge loop already repairs, so treating it differently only made the
+landing give up sooner.
+
+Rejected alternative: a fresh fix allowance for every force-push. It would let
+the fix spend per issue grow with the number of rebases, so the cost of one
+landing would no longer be bounded. Sharing the one `MAX_FIX_ATTEMPTS` budget
+keeps the total bounded the same way the pre-merge loop already is.
+
+Implementation: `internal/settle/ready.go` separates the two outcomes with
+sentinel errors. `errForcePushedRed` is genuine red CI and draws from the fix
+budget; `errLandingNeverGreen` covers a re-wait timeout and a conflict-resolve
+dispatch or relay failure, and ends `Failed`. The tests are
+`TestSelfHeal_ForcePushedRed_FixBudget` and
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed` in
+`internal/settle/ready_test.go`.
