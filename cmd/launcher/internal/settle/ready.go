@@ -796,9 +796,10 @@ func (s *Settle) rewaitAfterForcePush(num string, gen uint64, pr string) error {
 }
 
 // rewaitGateResultErr maps a gateToGreen outcome to rewaitAfterForcePush's
-// return value. gateTerminal and gateRedRetry are named explicitly rather than
-// folded into a catch-all default, so a future gateResult variant panics here
-// instead of silently landing on "never green" (issue #1175).
+// return value. gateTerminal and gateRedRetry (mapped to errForcePushRed) are
+// named explicitly rather than folded into a catch-all default, so a future
+// gateResult variant panics here instead of silently landing on "never green"
+// (issue #1175).
 func rewaitGateResultErr(g gateResult, reason, pr string) error {
 	switch g {
 	case gateGreen:

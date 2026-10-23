@@ -926,3 +926,35 @@ func TestSelfHeal_RedAfterForcePush_BudgetExhausted_EndsFailed(t *testing.T) {
 		t.Errorf("failure comment must name attempts; comments=%v", fc.CommentCalls)
 	}
 }
+
+// The fix budget is shared with the pre-merge red-CI loop: a pre-merge fix pass
+// that spent the whole allowance leaves none for a red force-pushed head.
+func TestSelfHeal_RedAfterForcePush_BudgetSharedWithPreMerge(t *testing.T) {
+	c := baseConfig()
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	c.MaxFixAttempts = 1
+	c.MergePollTimeout = 100
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateFailure,                     // pre-merge red
+		forge.StateSuccess, forge.StateSuccess, // after the fix pass
+		forge.StateFailure, // rewait after rebase: red
+	})
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Errorf("selfHeal = %v, want landingFailed", landing)
+	}
+	if !strings.Contains(reason, "1 fix pass(es)") {
+		t.Errorf("reason = %q, want 1 attempt named", reason)
+	}
+	if len(d.FixCalls) != 1 {
+		t.Errorf("Fix called %d times, want 1 (shared budget)", len(d.FixCalls))
+	}
+}
