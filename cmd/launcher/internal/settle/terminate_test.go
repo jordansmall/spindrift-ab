@@ -674,9 +674,9 @@ func TestMergeImmediate_ConflictResolveBoxReapedDuringStaleBasePreflight_Reports
 // The reviewer's own repro (issue #3523, BLOCK finding): with the shipped
 // MERGE_MODE=manual default, a mark landing during gateToGreen's
 // SUCCESS-confirm sleep (watch.go, inside w.clock.Sleep) must abandon before
-// the gateGreen arm ever touches MarkReady or commits Complete. Before the
+// landGreen ever touches MarkReady or commits Complete. Before the
 // fix, only MergeMode=immediate's own applyMergeMode entry guard covered a
-// mark landing in this arm, so manual mode's mark here fell straight through
+// mark landing on this path, so manual mode's mark here fell straight through
 // to a Complete commit on an issue Reclaim had already moved to
 // Dispatchable. Control: TestSelfHeal_MarksReadyBeforeManualHandoff runs the
 // identical manual-mode green path with nothing marked and reaches
