@@ -128,3 +128,19 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment: a red force-pushed head gets a fix pass (issue #5095)
+
+Originally a post-force-push re-wait that ended red settled the issue
+`Failed` (`landing-failed`) on the spot, with no fix pass — the force-pushed
+head never went green. Now a *red* re-wait (after a clean rebase-retry, the
+stale-base preflight rebase, or a conflict-resolve Box) re-enters the red-CI
+fix loop: the host dispatches the existing fix pass, and a head it turns green
+re-enters the merge path like any first-green head, rebase-retry and
+conflict-resolve budgets included. The fix pass draws from the **same**
+`MAX_FIX_ATTEMPTS` budget as the pre-merge loop, not a fresh allowance per
+force-push, so a runaway rebase/red cycle stays bounded. The issue still ends
+`Failed` with `landing-failed` when that budget is exhausted (the comment
+names the fix attempts used), when the re-wait times out, or when the
+conflict-resolve dispatch or its relay fails — none of those leaves a red head
+a fix pass could repair.

@@ -111,3 +111,71 @@ func TestSettle_ReadyConflictRebaseFailsMergeBlocked(t *testing.T) {
 	}
 	assertOutputHas(t, out, "status=rebase-retry", "status=merge-blocked")
 }
+
+// A conflict-retry force-push that goes red draws a fix pass; the fixed head
+// re-enters the merge path and lands.
+func TestSettle_ForcePushRedFixPassThenMerges(t *testing.T) {
+	c := fixConfig(2)
+	c.MaxRebaseAttempts = 3
+	fc := gateForge(forge.StateSuccess, 2)
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateSuccess, forge.StateSuccess, // first green
+		forge.StateFailure, forge.StateFailure, // red after force-push
+		forge.StateSuccess, forge.StateSuccess, forge.StateSuccess, // fixed
+	})
+	fc.MergeErrs = []error{forge.ErrMergeConflict, nil}
+	d := dispatch.NewFake()
+	s := newTestSettle(c, fc, fc)
+
+	s.Settle(d, gateIssue, 0, readyResult())
+
+	if got := fixPasses(d); len(got) != 1 {
+		t.Errorf("fix passes = %v, want exactly 1", got)
+	}
+	if fc.Merged != testPR {
+		t.Errorf("fixed head must merge; fc.Merged=%q", fc.Merged)
+	}
+	iss, _ := fc.Issue(gateIssue)
+	if !containsLabel(iss.Labels, "agent-complete") {
+		t.Errorf("issue must carry agent-complete; labels=%v", iss.Labels)
+	}
+}
+
+// With the fix budget already spent, a red force-pushed head fails as
+// landing-failed and the comment names the attempts used.
+func TestSettle_ForcePushRedBudgetExhausted(t *testing.T) {
+	c := fixConfig(0)
+	c.MaxRebaseAttempts = 3
+	fc := gateForge(forge.StateSuccess, 2)
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateSuccess, forge.StateSuccess,
+		forge.StateFailure, forge.StateFailure, forge.StateFailure, forge.StateFailure,
+		forge.StateFailure, forge.StateFailure, forge.StateFailure, forge.StateFailure,
+	})
+	fc.MergeErrs = []error{forge.ErrMergeConflict, nil}
+	d := dispatch.NewFake()
+	s := newTestSettle(c, fc, fc)
+
+	s.Settle(d, gateIssue, 0, readyResult())
+
+	if got := fixPasses(d); len(got) != 0 {
+		t.Errorf("fix passes = %v, want none", got)
+	}
+	if fc.Merged != "" {
+		t.Errorf("red head must not merge; fc.Merged=%q", fc.Merged)
+	}
+	iss, _ := fc.Issue(gateIssue)
+	if !containsLabel(iss.Labels, "agent-failed") {
+		t.Errorf("issue must carry agent-failed; labels=%v", iss.Labels)
+	}
+	found := false
+	cms := fc.CommentCalls
+	for _, cm := range cms {
+		if strings.Contains(cm.Body, "still red after 0 fix attempt(s)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no landing-failed comment naming attempts; comments=%v", cms)
+	}
+}
