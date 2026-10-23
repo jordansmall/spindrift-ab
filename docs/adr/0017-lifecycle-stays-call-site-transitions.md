@@ -36,3 +36,11 @@ the static table above. Until then, architecture reviews should not
 re-suggest this module.
 
 Closes #139.
+
+## Amendment (after issue #5053): a red re-wait feeds the fix loop first
+
+A force-pushed head's red re-wait no longer fires the `InProgress→Failed` edge
+by itself. It runs a fix pass first, and the edge fires only when that budget
+is exhausted (the `fromPush` branch of `selfHealGate`'s red arm), or when the
+re-wait times out or ends terminal, or a conflict-resolve dispatch or relay
+fails. Still the same edge, still named inline at its call sites.
