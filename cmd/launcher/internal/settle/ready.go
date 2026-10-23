@@ -175,7 +175,6 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 			}
 		}
 		// Reached from a red gate poll, or from a red force-pushed head (issue #5095).
-
 		// The budget caps (issue #2001) stop a runaway token or cost run
 		// even while MaxFixAttempts would still allow more passes. Both
 		// knobs unset skips the check, so the no-cap path never pays

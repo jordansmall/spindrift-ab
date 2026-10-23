@@ -627,7 +627,7 @@ func TestSelfHeal_ForcePushRewaitTimeoutSkipsFixPass(t *testing.T) {
 	s.cfg.MergePollTimeout = 0
 	landing, _ := s.selfHeal(d, "1", 0, testPR)
 
-	if landing == landingMerged || len(d.FixCalls) != 0 {
+	if landing != landingFailed || len(d.FixCalls) != 0 {
 		t.Errorf("landing=%v fixCalls=%d, want a failed landing with no fix pass", landing, len(d.FixCalls))
 	}
 }
