@@ -2906,8 +2906,9 @@ ready-for-agent ──dispatch──▶ agent-in-progress ───landing settl
 - **Green is labelled only once the landing path settles; merge is a separate
   policy.** When CI confirms green the launcher applies `MERGE_MODE` first:
   `immediate` rebase-merges the PR (retrying rebase conflicts, dispatching an
-  agent conflict-resolve box, and re-waiting for CI on the new head as needed
-  — the issue stays `agent-in-progress` throughout), then verifies it really is
+  agent conflict-resolve box, and re-waiting for CI on the new head as needed;
+  a red re-wait draws a fix pass from the same `MAX_FIX_ATTEMPTS` budget — the
+  issue stays `agent-in-progress` throughout), then verifies it really is
   merged; `auto` enqueues the forge's native auto-merge (`github` or
   `forgejo`); `manual` (the default) leaves the green PR open for a human.
   Only once that settles does the merge gate swap `agent-in-progress` →
@@ -5988,8 +5989,10 @@ so a tokened log it settles (an older `spindrift recover`, say) reads
   be read), `merge-blocked` (the merge or the auto-merge enqueue failed after green; the PR stays open),
   `already-resolved`, `verdict` (research posted its verdict), `findings-filed`
   (a butler Chore filed its findings), and `recover-declined`;
-- `failed`: `landing-failed`, `gate-terminal`, `ci-red` (CI red with no fix pass
-  budget), `fix-exhausted`, `budget-exhausted`, `fix-failed`, `fix-no-op`,
+- `failed`: `landing-failed` (a force-pushed head never went green and no fix
+  budget remained, or its re-wait timed out or its conflict-resolve failed),
+  `gate-terminal`, `ci-red` (CI red with no fix pass budget), `fix-exhausted`,
+  `budget-exhausted`, `fix-failed`, `fix-no-op`,
   `relay-failed` (also recover's park), `blocked`, `no-outcome` (the Box printed
   no outcome line), `merge-unverified` (a merge `verifyMerged`'s reads
   contradicted; a read that keeps failing never produces it), `no-pr`
@@ -6644,15 +6647,17 @@ stale-base preflight enabled. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
-that confirms green on its first poll and merges adds only seconds to the
-Box's runtime. The one-shot wave has no refill loop to stop — its batch is
-fixed up front — so there the first signal simply means launch nothing
-further from that batch while whatever is already running finishes and
-settles. The launcher prints a line when a drain begins, so an operator can
-tell a drain from a hang. Teardown runs on every signalled path, and behavior
-is identical under the OCI and bwrap runtimes — nothing in the signal path
-branches on runtime.
+of the polling. Those figures assume no fix pass lands a force-pushed head:
+one that does re-enters the merge path with fresh rebase budgets, so the
+rebase windows can repeat once per fix pass. The floor is the other end of
+the same range: a settle that confirms green on its first poll and merges
+adds only seconds to the Box's runtime. The one-shot wave has no refill loop
+to stop — its batch is fixed up front — so there the first signal simply
+means launch nothing further from that batch while whatever is already
+running finishes and settles. The launcher prints a line when a drain
+begins, so an operator can tell a drain from a hang. Teardown runs on every
+signalled path, and behavior is identical under the OCI and bwrap runtimes —
+nothing in the signal path branches on runtime.
 
 A **second** signal abandons that wait: the launcher reaps every in-flight Box
 and releases each of their issues off the in-progress label back to

@@ -128,3 +128,35 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets the shared fix pass
+
+The stale-base preflight rebase described here, and the reactive rebase-retry
+and agent conflict-resolve paths it shares `rewaitAfterForcePush` with, used
+to settle the issue `Failed` with reason `landing-failed` the moment the
+post-force-push CI re-wait ended red or timed out. That threw away a head one
+fix pass from green: issue #5053's conflict-resolve force-push went red on
+`flakemodule-equivalence`, and the issue settled `landing-failed` 13 seconds
+later without a single fix pass.
+
+A red re-wait now dispatches the existing red-CI fix pass, drawing from the
+same `MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI loop rather than a fresh
+allowance per force-push. A head the fix pass turns green re-enters the merge
+path exactly as a first-green head does, with fresh rebase-retry and
+conflict-resolve budgets
+(`TestSelfHeal_ForcePushRed_ReentryGetsFreshRebaseBudget`). From there the
+gate behaves as the pre-merge loop: a head still red takes another fix pass
+until the shared budget is spent, then settles `Failed`/`landing-failed`; a CI
+poll timing out after a fix pass settles `gate-terminal`; a token/USD cap, a
+failed fix Box, or a fix pass pushing nothing settle `budget-exhausted`,
+`fix-failed`, or `fix-no-op` with their usual notes. The first re-wait timing
+out, or the conflict-resolve dispatch or its outbox relay failing, settles
+`landing-failed` without a fix pass. A `landing-failed` or `gate-terminal`
+comment on a force-pushed head names how many fix attempts it consumed (none,
+for those first-exit failures) alongside the shared-budget total
+(`TestSelfHeal_ForcePushRed_FixPassThenMerges`,
+`TestSelfHeal_ConflictResolveRed_FixPassThenMerges`,
+`TestSelfHeal_ForcePushRed_BudgetExhausted_EndsLandingFailed`,
+`TestSelfHeal_ForcePushRed_FixPassThenTimeout_NamesAttempts`,
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed`,
+`TestSelfHeal_ConflictResolveRelayFailure_EndsFailedWithoutFix`).
