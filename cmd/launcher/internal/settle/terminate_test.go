@@ -982,3 +982,66 @@ func TestSettle_PushOnlyAbandonedSkipsUsageComment(t *testing.T) {
 
 	assertNoTransitionOrComment(t, fc)
 }
+
+// terminatingOnRed wraps a forge.Fake so a CheckState call that returns a
+// failing rollup marks num terminated as it returns, simulating a mark that
+// lands during a red poll's own round-trip (issue #3523).
+type terminatingOnRed struct {
+	*forge.Fake
+	reg *terminate.Registry
+	num string
+}
+
+func (f *terminatingOnRed) CheckState(url string) (forge.RollupState, error) {
+	state, err := f.Fake.CheckState(url)
+	if state == forge.StateFailure {
+		f.reg.Mark(f.num)
+	}
+	return state, err
+}
+
+// A mark landing as the post-force-push re-wait's red poll returns makes the
+// re-wait yield errForcePushRed, not errAbandoned, so selfHealGate's own guard
+// must abandon rather than commit Failed or dispatch a fix Box at a branch
+// Reclaim already released (issue #5095). Covers both budget left and
+// exhausted.
+func TestSelfHeal_TerminatedRedRewaitAfterForcePush_ReportsAbandoned(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		maxFix int
+	}{
+		{name: "fix budget left", maxFix: 3},
+		{name: "fix budget exhausted", maxFix: 0},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixConfig(tc.maxFix)
+			c.MergeMode = "immediate"
+			c.MaxRebaseAttempts = 3
+			fc := forge.NewFake(testDispatchLabels)
+			fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+			fc.MergeErrs = []error{forge.ErrMergeConflict}
+			fc.SetCheckStates(testPR, []forge.RollupState{
+				forge.StateSuccess, forge.StateSuccess, // initial gateToGreen
+				forge.StateFailure, // rewait: red, mark lands as it returns
+			})
+			tf := &terminatingOnRed{Fake: fc, num: "1"}
+			s := newTestSettle(c, tf, tf)
+			tf.reg = s.Registry()
+			d := dispatch.NewFake()
+
+			landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+			if landing != landingAbandoned {
+				t.Errorf("selfHeal = %v, want landingAbandoned", landing)
+			}
+			if reason != "" {
+				t.Errorf("selfHeal reason = %q, want empty", reason)
+			}
+			assertNoTransitionOrComment(t, fc)
+			if len(d.FixCalls) != 0 {
+				t.Errorf("no fix pass may run for a released issue; got %+v", d.FixCalls)
+			}
+		})
+	}
+}
