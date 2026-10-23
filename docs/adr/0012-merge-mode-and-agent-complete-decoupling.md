@@ -45,15 +45,21 @@ is reserved strictly for **"never produced a green PR"**: a box crash, CI
 genuinely red past `MAX_FIX_ATTEMPTS`, or — amended by issue #758 — a
 force-pushed head (rebase-retry's own force-push, or an agent conflict-resolve
 box's) that never goes green: the conflict-resolve dispatch itself failing, or
-the post-force-push re-wait ending red or timed out. That is not a merge
-failure after green; it is the landing path discovering the current head was
-never green in the first place, so the existing `InProgress→Failed` edge fires
-instead of the settle swap to `agent-complete`. The existing rebase-retry and
-agent conflict-resolve behaviors still run inside `applyMergeMode` for
-`immediate`; an *unresolvable* conflict (rebase or re-merge keeps conflicting
-after exhausting retries, with a green PR still standing at the pre-rebase
-head) stays `agent-complete` with a merge-blocked note exactly as before —
-only a force-pushed head that never re-confirms green is demoted.
+the post-force-push re-wait ending red or timed out. (Amended by issue
+#t5095-l1, after #5053's landing failed this way: a post-force-push re-wait that
+ends red now dispatches the ordinary red-CI fix pass from the same shared
+`MAX_FIX_ATTEMPTS` budget before demoting, so red alone no longer demotes a
+force-pushed head; an exhausted fix budget, a re-wait timeout, a failed
+conflict-resolve dispatch or relay, or any of the fix pass's own failure endings
+still does.) That is not a merge failure after green; it is the landing path
+discovering the current head was never green in the first place, so the
+existing `InProgress→Failed` edge fires instead of the settle swap to
+`agent-complete`. The existing rebase-retry and agent conflict-resolve behaviors
+still run inside `applyMergeMode` for `immediate`; an *unresolvable* conflict
+(rebase or re-merge keeps conflicting after exhausting retries, with a green PR
+still standing at the pre-rebase head) stays `agent-complete` with a
+merge-blocked note exactly as before — only a force-pushed head that never
+re-confirms green is demoted.
 
 The shipped default is **`manual`** — the generic-safe choice for the open-source
 ecosystem, where most repos gate merges on some approval, so an `immediate`

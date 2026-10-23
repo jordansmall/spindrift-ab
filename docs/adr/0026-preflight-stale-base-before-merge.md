@@ -128,3 +128,18 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #t5095-l1): a red force-pushed head gets a fix pass
+
+A force-pushed head — preflight-rebased, rebase-retried, or conflict-resolved
+— whose CI re-wait ends red no longer settles `agent-failed` on the spot, as
+#5053's landing did. The launcher dispatches the ordinary red-CI fix pass,
+drawing on the same `MAX_FIX_ATTEMPTS` budget the pre-merge red loop uses,
+and a head the fix pass turns green re-enters the merge path with fresh
+rebase and conflict-resolve budgets. An exhausted fix budget, a re-wait
+timeout, or a failed conflict-resolve dispatch or relay still ends the issue
+`agent-failed`, with a `landing-failed` comment naming the fix passes the
+force-pushed head consumed. The spend cap is checked before every fix
+dispatch, the first included, so it can end the issue `budget-exhausted` with
+no fix pass run and no `landing-failed` comment; once a fix pass has run, so
+does any of the fix pass's own failure endings.

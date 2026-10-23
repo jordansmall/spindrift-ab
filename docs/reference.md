@@ -2907,10 +2907,12 @@ ready-for-agent ──dispatch──▶ agent-in-progress ───landing settl
   policy.** When CI confirms green the launcher applies `MERGE_MODE` first:
   `immediate` rebase-merges the PR (retrying rebase conflicts, dispatching an
   agent conflict-resolve box, and re-waiting for CI on the new head as needed
-  — the issue stays `agent-in-progress` throughout), then verifies it really is
-  merged; `auto` enqueues the forge's native auto-merge (`github` or
-  `forgejo`); `manual` (the default) leaves the green PR open for a human.
-  Only once that settles does the merge gate swap `agent-in-progress` →
+  — the issue stays `agent-in-progress` throughout; a force-pushed head whose
+  re-wait ends red gets a fix pass from the same `MAX_FIX_ATTEMPTS` budget,
+  and only a head no fix pass turns green settles `agent-failed`), then
+  verifies it really is merged; `auto` enqueues the forge's native auto-merge
+  (`github` or `forgejo`); `manual` (the default) leaves the green PR open for
+  a human. Only once that settles does the merge gate swap `agent-in-progress` →
   `agent-complete` — the agent's work is done. `Closes #N` in the PR body
   closes the issue whenever the PR merges.
   (Dependency ordering keys off the PR actually being merged, not this label —
