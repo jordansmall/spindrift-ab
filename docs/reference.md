@@ -6640,7 +6640,10 @@ launcher re-waits for green on the new head — once per
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
 defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
+stale-base preflight enabled. That ceiling assumes no red re-wait: one
+spends a fix pass too (issue #5095), and the fixed head re-enters the merge
+path with fresh rebase budgets, so each such pass can add up to
+`MAX_REBASE_ATTEMPTS` more windows, one more with the preflight. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
