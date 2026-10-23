@@ -3,6 +3,10 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (issue #5053):** a red re-wait after a force-push now gets a
+> red-CI fix pass instead of settling `landing-failed`; see the amendment
+> below.
 
 ## Context
 
@@ -128,3 +132,32 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red re-wait after a force-push gets a fix pass
+
+Issue #5053's landing failed when a conflict-resolve Box force-pushed a head
+that went red on `flakemodule-equivalence`: `selfHealGate` settled
+`landing-failed` 13s later with no fix pass, though the pre-merge red loop
+would have dispatched one for the same red CI. The preflight is unchanged and
+still blocks the stale merge itself; only what happens after the
+post-force-push re-wait ends red changed.
+
+The rule covers every force-push source: the clean rebase-retry, the
+stale-base preflight rebase, and the conflict-resolve Box. A red re-wait
+(`errForcePushRed`, a subset of `errLandingNeverGreen`) is routed into the
+existing red-CI fix pass at the current `attempt`, so it shares the
+`MaxFixAttempts` budget with the pre-merge red loop rather than getting a
+fresh allowance. A head the fix turns green re-enters the merge path like a
+first-green head, with the rebase-retry and conflict-resolve budgets reset.
+
+The landing still ends `Failed` (`landing-failed`) when the fix budget is
+exhausted (the comment then names the force-pushed head's attempts against the
+total), when the re-wait times out (`gateTerminal`), or when the
+conflict-resolve dispatch or its relay fails.
+
+Pinned in `internal/settle/ready_test.go` by
+`TestSelfHeal_RewaitAfterForcePush_RedFixSucceeds_Merges`,
+`TestSelfHeal_RewaitAfterForcePush_RedBudgetExhausted_EndsFailed`,
+`TestSelfHeal_RewaitAfterForcePush_RedSharesFixBudget`,
+`TestSelfHeal_RewaitAfterForcePush_Timeout_EndsFailed`, and
+`TestRewaitGateResultErr_ExplicitCases`.
