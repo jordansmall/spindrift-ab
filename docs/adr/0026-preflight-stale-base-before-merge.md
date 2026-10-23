@@ -128,3 +128,26 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets fix passes
+
+Originally, when `immediate` Landing force-pushed a head and the CI re-wait
+that followed ended red, the issue settled `Failed` on the spot. That covered
+every route to a force-push: a clean rebase-retry, this preflight's rebase,
+and the agent-dispatched conflict-resolve Box. Issue #5053 showed the cost: a
+conflict-resolve force-push went red on `flakemodule-equivalence` and the
+issue settled `landing-failed` seconds later, discarding a run whose only
+problem was the kind of red a fix pass already handles before merge.
+
+A genuinely red re-wait now dispatches the existing red-CI fix pass. The pass
+draws from the same `MAX_FIX_ATTEMPTS` budget as the pre-merge loop, so a
+force-push does not earn a fresh allowance. A head the fix pass turns green
+re-enters the merge path exactly as a first-green head does, with its
+rebase-retry and conflict-resolve budgets intact. In `settle/ready.go`,
+`errRedAfterForcePush` marks this case; it wraps `errLandingNeverGreen`, so a
+red head whose fix budget is spent settles like any other never-green head.
+
+The issue still ends `Failed` with `landing-failed` when the fix budget is
+exhausted, when the re-wait times out or the CI API errors, and when the
+conflict-resolve dispatch or its outbox relay fails. The failure comment names
+how many fix passes of the budget were used.
