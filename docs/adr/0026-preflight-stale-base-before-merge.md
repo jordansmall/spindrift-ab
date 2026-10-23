@@ -128,3 +128,26 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): A red force-pushed head gets a fix pass
+
+The Decision demoted a CI failure on the rebased tree "the same way a genuine
+red gate result always has", but the implementation skipped the step a genuine
+red gate result gets first: a fix pass. Any force-pushed head — the preflight
+stale-base rebase, a clean reactive rebase-retry, or a conflict-resolve Box's
+push — whose post-force-push CI re-wait ended red settled `Failed` with
+`landing-failed` outright, even with fix budget unspent. A red combined tree is
+exactly the cross-PR break this ADR exists to catch, and it is as fixable as
+any other red head.
+
+Now a red re-wait goes through the same red-CI fix pass the pre-merge gate
+uses, drawn from the same `MAX_FIX_ATTEMPTS` budget and attempt counter — the
+landing path gets no second allowance. A head the fix turns green re-enters
+the merge path like a first-green head, with fresh rebase-retry and
+conflict-resolve budgets. The issue still settles `Failed` with
+`landing-failed` when that shared budget is exhausted, including by a fix pass
+whose own head is still red. The comment names how many of the allowed fix
+passes ran, counting passes spent before the merge. It also settles that way
+when the re-wait times out or the conflict-resolve dispatch or its outbox
+relay fails; those cases get no fix pass, since none is a red CI result a fix
+could answer.
