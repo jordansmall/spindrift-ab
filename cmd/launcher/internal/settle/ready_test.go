@@ -274,9 +274,9 @@ func TestSelfHeal_ConflictResolveAlreadyRunning_ReportsAbandonedNotFailed(t *tes
 	assertClaimUntouched(t, fc)
 }
 
-// When the post-force-push re-wait ends in genuine red CI or a timeout, the
-// issue ends agent-failed: the force-pushed head never produced a green PR
-// (issue #758).
+// When the post-force-push re-wait ends in genuine red CI with no fix budget,
+// or times out, the issue ends agent-failed: the force-pushed head never
+// produced a green PR (issue #758).
 func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -311,6 +311,7 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			c := baseConfig()
+			c.MaxFixAttempts = 0
 			c.MergeMode = "immediate"
 			c.MaxRebaseAttempts = 3
 			c.MergePollTimeout = tc.pollTimeout
@@ -338,6 +339,10 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			if containsLabel(iss.Labels, "agent-complete") {
 				t.Errorf("issue must NOT carry agent-complete; labels=%v", iss.Labels)
 			}
+			if passes := fixPasses(d); len(passes) != 0 {
+				t.Errorf("fix passes = %v, want none (MaxFixAttempts=0, or a timeout)", passes)
+			}
+			assertLatchedLandingFailed(t, s, fc, "1", "consumed 0 fix attempt(s), 0 of 0 used")
 		})
 	}
 }
@@ -347,15 +352,16 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 // (issue #1175).
 func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 	cases := []struct {
-		name    string
-		g       gateResult
-		wantErr error
-		wantNil bool
+		name      string
+		g         gateResult
+		wantErr   error
+		wantNil   bool
+		wantFixes bool
 	}{
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen, wantFixes: true},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -369,6 +375,9 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 			}
 			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("rewaitGateResultErr(%v) = %v, want wrapping %v", tc.g, err, tc.wantErr)
+			}
+			if got := errors.Is(err, errForcePushRed); got != tc.wantFixes {
+				t.Errorf("errors.Is(rewaitGateResultErr(%v), errForcePushRed) = %v, want %v", tc.g, got, tc.wantFixes)
 			}
 		})
 	}
@@ -687,6 +696,21 @@ func assertLatchedLeftOpen(t *testing.T, s *Settle, num string) {
 	defer s.settledMu.Unlock()
 	if r := s.settledLatch[num].reason; !ReasonLeavesPROpen(r) {
 		t.Errorf("latched reason %q for a landingManual settle is not ReasonLeavesPROpen", r)
+	}
+}
+
+// assertLatchedLandingFailed asserts num latched Failed/landing-failed and that
+// the landing-failed comment contains wantComment.
+func assertLatchedLandingFailed(t *testing.T, s *Settle, fc *forge.Fake, num, wantComment string) {
+	t.Helper()
+	s.settledMu.Lock()
+	latch := s.settledLatch[num]
+	s.settledMu.Unlock()
+	if latch.state != forge.Failed.String() || latch.reason != ReasonLandingFailed {
+		t.Errorf("settled latch = %+v, want Failed/%s", latch, ReasonLandingFailed)
+	}
+	if body := landingFailedComment(fc); !strings.Contains(body, wantComment) {
+		t.Errorf("landing-failed comment = %q, want it to contain %q", body, wantComment)
 	}
 }
 

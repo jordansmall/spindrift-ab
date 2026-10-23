@@ -29,6 +29,15 @@ func fixPasses(d *dispatch.Fake) []int {
 	return passes
 }
 
+func landingFailedComment(fc *forge.Fake) string {
+	for _, call := range fc.CommentCalls {
+		if strings.HasPrefix(call.Body, "landing failed:") {
+			return call.Body
+		}
+	}
+	return ""
+}
+
 // On genuine red, selfHeal must forward fc.FailureDetail(pr) to Fix as the fix
 // box's CI_FAILURE_SUMMARY (issue #426).
 func TestSelfHeal_ForwardsFailureDetailToFix(t *testing.T) {
