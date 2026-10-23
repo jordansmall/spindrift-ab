@@ -128,3 +128,47 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push re-wait takes a fix pass
+
+The original decision treated a force-pushed head's re-wait that ended red as
+the end of the landing. The PR stayed blocked, and the issue settled
+`landing-failed` with no fix pass, however ordinary the red CI was. Issue #5053
+showed the cost: a conflict-resolve Box force-pushed a head that went red on
+`flakemodule-equivalence`, and the issue settled `landing-failed` thirteen
+seconds later, with no chance for the fix pass that exists to repair exactly
+that kind of failure.
+
+A red post-force-push re-wait now takes the ordinary red-CI fix pass. That
+pass draws on the same `MAX_FIX_ATTEMPTS` counter as the pre-merge red loop, so
+the two paths share one allowance instead of each force-push buying a fresh
+one. A head the fix turns green re-enters the merge path exactly as a
+first-green head does. Its `MAX_REBASE_ATTEMPTS`, conflict-resolve, and
+preflight budgets are fresh, because they are local to each entry into
+`mergeImmediate`.
+
+Some cases still end `Failed` (`landing-failed`) without a fix pass. A red
+re-wait with the fix budget already spent does, and its comment names how many
+of the M fix passes ran on a force-pushed head ("no fix pass allowed" when M
+is 0). So does a re-wait that times out, and a
+conflict-resolve dispatch or outbox relay that fails: neither leaves a red
+head for a fix pass to act on.
+
+The consequence is a longer worst case. The merge path can now be entered up
+to `MAX_FIX_ATTEMPTS + 1` times, each entry can re-wait up to
+`MAX_REBASE_ATTEMPTS` times (one more with the preflight), and the CI-wait
+ceiling grows from `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows to
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)`. The drain paragraph in
+`docs/reference.md` carries the numbers.
+
+The tests that pin this are `TestSelfHeal_PostForcePushRed_FixPassThenMerges`
+(rebase-retry origin), `TestSelfHeal_PostForcePushRed_ConflictResolveOriginFixPassThenMerges`
+(conflict-resolve origin), and
+`TestSelfHeal_PostForcePushRed_StaleBaseOriginFixPassThenMerges` (stale-base
+preflight origin), and `TestSelfHeal_PostForcePushRed_SharesFixBudget`, all in
+`cmd/launcher/internal/settle/fix_test.go`. The cases that still end `Failed`
+are pinned by `TestSelfHeal_RewaitAfterForcePush_TimeoutOrTerminal_EndsFailed`,
+`TestSelfHeal_ConflictResolveFailure_EndsFailed`, and
+`TestSelfHeal_ForcePushRelayFailure_SettlesFailedWithoutFix`. The mapping from
+a re-wait outcome to its error class is pinned by
+`TestRewaitGateResultErr_ExplicitCases`.
