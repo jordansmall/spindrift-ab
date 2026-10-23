@@ -74,7 +74,16 @@ re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
 the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
+to merge as before. (*Amended by issue #5053:* a red post-force-push re-wait
+no longer settles `Failed` on the spot. Whether the force-push came from the
+preflight rebase, a rebase-retry, or a conflict-resolve Box, a head that ends
+red dispatches the existing red-CI fix pass, drawing from the same
+fix-attempt budget as the pre-merge loop. A head the fix pass turns green
+re-enters the merge path with fresh rebase and conflict-resolve budgets. The
+issue still ends `Failed` (`landing-failed`) when that budget is exhausted —
+the comment names the attempts consumed — and, with no fix pass, when the
+re-wait times out or the conflict-resolve dispatch or relay fails.)
+The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
@@ -128,3 +137,10 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+- A force-pushed head that goes red in the post-force-push re-wait draws the
+  shared red-CI fix pass rather than failing outright
+  (`TestSelfHeal_ForcePushRed_FixPassThenGreenMerges`,
+  `TestSelfHeal_ForcePushRed_BudgetExhaustedEndsFailed`); a timeout or a
+  failed conflict-resolve dispatch still ends `Failed` with no fix pass
+  (`TestSelfHeal_ForcePushTimeout_NoFixPass`,
+  `TestSelfHeal_ForcePushResolveFailure_NoFixPass`).
