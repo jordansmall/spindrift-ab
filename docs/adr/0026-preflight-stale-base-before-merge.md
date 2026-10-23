@@ -4,6 +4,9 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended below:** a red CI re-wait after any landing force-push now
+> dispatches the ordinary red-CI fix pass instead of demoting on the spot.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -128,3 +131,32 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment: a red post-force-push head gets a fix pass
+
+The Decision above says a CI failure on the rebased tree "demotes the same way
+a genuine red gate result always has". In practice the demotion skipped the
+step a genuine red gate result gets first: the fix pass. When `immediate`
+Landing force-pushes a head (this preflight rebase, a clean rebase-retry, or
+an agent conflict-resolve Box) and the post-force-push re-wait ends red, the
+host now dispatches the existing red-CI fix pass, drawing from the same
+`MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop uses. The budget is
+shared, not a fresh allowance per force-push. A head the fix pass turns green
+re-enters the merge path exactly as a first-green head does (MarkReady, the
+merge guards, then a fresh `mergeImmediate`), so its rebase-retry,
+conflict-resolve, and preflight budgets start over. The issue still ends
+`Failed` with reason `landing-failed` when the shared budget is spent after a
+force-push went red (the comment names how many fix passes the force-pushed
+head consumed, out of the total), when the re-wait times out, or when the
+conflict-resolve dispatch or its outbox relay fails; a timeout or a failed
+dispatch or relay never gets a fix pass.
+
+Why: settling `Failed` seconds after a red force-push threw away a head the
+ordinary fix pass could repair. The motivating case was a conflict-resolve
+force-push that went red on a single check and settled `landing-failed` with
+no fix pass attempted.
+
+Consequence: because a fixed head re-enters the merge path with fresh
+rebase budgets, one settle's worst-case CI polling now multiplies rather than
+adds; [Dispatch exit codes](../reference.md#dispatch-exit-codes) states the
+ceiling.
