@@ -279,32 +279,59 @@ func TestSelfHeal_ConflictResolveAlreadyRunning_ReportsAbandonedNotFailed(t *tes
 // (issue #758).
 func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 	cases := []struct {
-		name        string
-		rebaseErr   error
-		resolveErr  error
-		pollTimeout int
-		checkStates []forge.RollupState
+		name           string
+		rebaseErr      error
+		resolveErr     error
+		pollTimeout    int
+		maxFixAttempts int
+		wantErr        error
+		checkStates    []forge.RollupState
 	}{
 		{
 			name: "rewait after a plain rebase ends genuine red",
 			// Rebase succeeds outright, so mergeImmediate goes straight to the
-			// post-force-push re-wait without a conflict-resolve.
-			rebaseErr:   nil,
-			pollTimeout: 100,
+			// post-force-push re-wait without a conflict-resolve. A zero fix
+			// budget leaves no pass to spend on the red head.
+			rebaseErr:      nil,
+			pollTimeout:    100,
+			maxFixAttempts: 0,
+			wantErr:        errForcePushedHeadRed,
 			checkStates: []forge.RollupState{
 				forge.StateSuccess, forge.StateSuccess, // initial gateToGreen
 				forge.StateFailure, // rewait's gateToGreen: genuine red
 			},
 		},
 		{
+			name: "rewait after conflict-resolve dispatch fails with fix budget left",
+			// A conflict-resolve Box that fails never pushes a head for a fix
+			// pass to act on, so the budget stays unspent.
+			rebaseErr:      forge.ErrMergeConflict,
+			resolveErr:     errors.New("resolve box crashed"),
+			pollTimeout:    100,
+			maxFixAttempts: 2,
+			wantErr:        errLandingNeverGreen,
+			checkStates:    []forge.RollupState{forge.StateSuccess, forge.StateSuccess},
+		},
+		{
+			name: "rewait timeout with fix budget left",
+			// A timed-out re-wait is not a red head, so the fix pass never runs.
+			rebaseErr:      nil,
+			pollTimeout:    0,
+			maxFixAttempts: 2,
+			wantErr:        errLandingNeverGreen,
+			checkStates:    []forge.RollupState{forge.StateSuccess, forge.StateSuccess},
+		},
+		{
 			name: "rewait after conflict-resolve times out",
 			// Rebase itself conflicts, so mergeImmediate dispatches
 			// conflict-resolve, which succeeds; the re-wait then times out with
 			// no checks ever registering.
-			rebaseErr:   forge.ErrMergeConflict,
-			resolveErr:  nil,
-			pollTimeout: 0,
-			checkStates: []forge.RollupState{forge.StateSuccess, forge.StateSuccess},
+			rebaseErr:      forge.ErrMergeConflict,
+			resolveErr:     nil,
+			pollTimeout:    0,
+			maxFixAttempts: 0,
+			wantErr:        errLandingNeverGreen,
+			checkStates:    []forge.RollupState{forge.StateSuccess, forge.StateSuccess},
 		},
 	}
 	for _, tc := range cases {
@@ -313,6 +340,7 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			c := baseConfig()
 			c.MergeMode = "immediate"
 			c.MaxRebaseAttempts = 3
+			c.MaxFixAttempts = tc.maxFixAttempts
 			c.MergePollTimeout = tc.pollTimeout
 			fc := forge.NewFake(testDispatchLabels)
 			fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
@@ -328,8 +356,11 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			if landing != landingFailed {
 				t.Errorf("selfHeal = %v, want landingFailed (force-pushed head never went green)", landing)
 			}
-			if !strings.Contains(reason, errLandingNeverGreen.Error()) {
-				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, errLandingNeverGreen.Error())
+			if !strings.Contains(reason, tc.wantErr.Error()) {
+				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, tc.wantErr.Error())
+			}
+			if len(d.FixCalls) != 0 {
+				t.Errorf("fix passes = %d, want 0 (none may run for this failure)", len(d.FixCalls))
 			}
 			iss, _ := fc.Issue("1")
 			if !containsLabel(iss.Labels, "agent-failed") {
@@ -355,7 +386,7 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushedHeadRed},
 	}
 	for _, tc := range cases {
 		tc := tc
