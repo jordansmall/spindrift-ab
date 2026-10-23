@@ -128,3 +128,19 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+The Decision above demotes a CI failure on the rebased tree the way a genuine
+red gate result always has. That left a gap: a genuine red after any
+force-push (this preflight, rebase-retry, or a conflict-resolve Box) settled
+`Failed` / `landing-failed` on the spot, with no fix pass, while the same red
+before merge would have drawn one. Settle now dispatches the ordinary red-CI
+fix pass for it from the same `MAX_FIX_ATTEMPTS` budget as the pre-merge red
+loop, and a head the fix turns green re-enters the merge path like a
+first-green head.
+
+The issue still ends `Failed` / `landing-failed` when the budget is exhausted
+(the comment names fix attempts used of the budget and how many ran on the
+force-pushed head), when the re-wait times out, or when the conflict-resolve
+dispatch or its outbox relay fails.
