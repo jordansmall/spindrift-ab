@@ -4,6 +4,9 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended by the issue #t5095-l1 amendment at the end of this file:** a red
+> post-force-push re-wait draws a fix pass instead of ending `Failed`.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -128,3 +131,32 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #t5095-l1): a red force-pushed head draws a fix pass
+
+Every post-force-push outcome other than green used to settle `Failed`
+through `errLandingNeverGreen` (issue #758): a red re-wait, a re-wait
+timeout, and a failed conflict-resolve dispatch alike. A red conflict-resolve
+force-push (parent #5053) therefore failed the issue 13 seconds later with no
+fix pass, though a first-gate red would have had `MAX_FIX_ATTEMPTS` of them.
+
+A red re-wait now dispatches the existing red-CI fix pass. It draws from the
+same `MAX_FIX_ATTEMPTS` budget as the pre-merge loop, never a fresh allowance
+per force-push, so the total stays bounded. A head the fix pass turns green
+re-enters the merge path as a first-green head does, with its rebase-retry
+and conflict-resolve budgets restarted. The issue still ends `Failed` with
+`landing-failed` when the fix budget is exhausted (comment: `landing failed:
+<err> — fix budget exhausted (N of M fix attempt(s) used)`), when the re-wait
+times out (or its CI poll errors), or when the conflict-resolve dispatch or
+its outbox relay fails; those settle with no fix pass. This supersedes only
+the never-green rule above.
+
+Why: a red force-pushed head is the same kind of red as a first-gate red, and
+the fix pass already exists; sharing the budget keeps the total bounded.
+
+Mechanism: `errForcePushRed` wraps `errLandingNeverGreen` for a red re-wait
+only. `selfHealGate` hands it to `fixPass` with the loop's own `attempt` as
+the budget counter. Covered by `TestSelfHeal_RewaitRed_FixPassThenMerges`,
+`TestSelfHeal_RewaitRed_SharesFixBudget`, and
+`TestSelfHeal_RewaitRed_NoBudgetEndsFailed` in
+`cmd/launcher/internal/settle/ready_test.go`.
