@@ -128,3 +128,27 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets the fix pass
+
+A force-pushed head — after a clean rebase-retry, this preflight's rebase, or
+an agent-dispatched conflict-resolve Box — is re-waited for green. Issue #5053
+settled `landing-failed` 13s after such a re-wait went red on a CI check,
+because the rule then was that the force-pushed head never went green, so the
+issue ends `Failed` on the spot.
+
+A re-wait that ends red now dispatches the existing red-CI fix pass instead.
+The pass draws on the same `MAX_FIX_ATTEMPTS` budget as the pre-merge loop,
+not a fresh allowance per force-push, and a head it turns green re-enters the
+merge path exactly as a first-green head does, with fresh rebase-retry and
+conflict-resolve budgets. The issue still ends `Failed` with `landing-failed`
+when that budget is spent, a red head included, whether the red follows a
+re-wait or a later fix pass; the comment names the fix passes spent since the
+head was first force-pushed red. A re-wait timeout, a failed conflict-resolve
+dispatch, and a failed outbox relay still settle `Failed` with no fix pass,
+since none produced a red head to fix.
+
+Because each green gate can now spend its own rebase and re-wait budget, the
+settle ceiling a drain must cover grows to
+`(MAX_FIX_ATTEMPTS + 1) * (MAX_REBASE_ATTEMPTS + 1)` poll windows
+([`TimeoutStopSec`](../reference.md)).
