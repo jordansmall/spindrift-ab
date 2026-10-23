@@ -128,3 +128,27 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass before landing-failed
+
+A conflict-resolve force-push went red on `flakemodule-equivalence` and the
+issue settled `landing-failed` 13 seconds later with no fix pass. The old rule
+("the force-pushed head never went green, so the issue ends Failed") is
+superseded for the red case: when `MERGE_MODE=immediate` force-pushes a head
+(rebase-retry, stale-base preflight rebase, or conflict-resolve Box) and the
+post-force-push re-wait ends red, `selfHealGate` dispatches the red-CI fix
+pass. It draws from the same `MAX_FIX_ATTEMPTS` budget as the pre-merge loop,
+so a force-push earns no fresh allowance. A head the fix pass turns green
+re-enters the merge path like a first-green head.
+
+The fix lives in `selfHealGate`, not `mergeImmediate` or `rewaitAfterForcePush`,
+because only the loop owns the fix `attempt` counter; placing it deeper would
+make the budget per force-push instead of shared. The red case is the new
+sentinel `errForcePushedHeadRed`, which wraps `errLandingNeverGreen`.
+
+Still terminal (`Failed`, `landing-failed`): a spent fix budget, a re-wait
+timeout, and a failed conflict-resolve dispatch or outbox relay; none of the
+last two get a fix pass. Tests: `TestSettle_ForcePushedHeadRedDispatchesFixThenMerges`,
+`TestSettle_ForcePushedHeadRedBudgetShared`, and
+`TestSettle_ForcePushedHeadNeverGreenSkipsFixPass` in
+`internal/settle/forcepush_red_test.go`.

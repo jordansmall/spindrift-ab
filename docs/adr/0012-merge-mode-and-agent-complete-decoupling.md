@@ -53,7 +53,9 @@ agent conflict-resolve behaviors still run inside `applyMergeMode` for
 `immediate`; an *unresolvable* conflict (rebase or re-merge keeps conflicting
 after exhausting retries, with a green PR still standing at the pre-rebase
 head) stays `agent-complete` with a merge-blocked note exactly as before —
-only a force-pushed head that never re-confirms green is demoted.
+only a force-pushed head that never re-confirms green is demoted. (A red
+post-force-push re-wait now gets a fix pass from the shared fix budget before
+it is demoted; see the amendment in ADR 0026.)
 
 The shipped default is **`manual`** — the generic-safe choice for the open-source
 ecosystem, where most repos gate merges on some approval, so an `immediate`
