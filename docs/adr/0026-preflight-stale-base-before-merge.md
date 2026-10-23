@@ -4,6 +4,10 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended by issue #5095:** a red post-force-push CI re-wait now spends a
+> fix pass from `MAX_FIX_ATTEMPTS` before the issue settles `Failed`; see
+> the Amendment at the end.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -72,9 +76,10 @@ and reports `behind_by > 0`.
 `Merge` attempt. On a hit, the launcher proactively rebases the branch and
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
-before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
+before the merge can complete. A CI failure on that rebased tree spends a
+fix pass from the shared `MAX_FIX_ATTEMPTS` budget before it demotes, as a
+genuine red gate result does; a clean rebase proceeds to merge as before.
+The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
@@ -111,8 +116,9 @@ combined tree) instead of just relocating it to a human.
 - The `#670`/`#672` collision itself is reproduced as a test
   (`TestMergeImmediate_StaleBaseCombinedBreakBlocksMerge` in
   `internal/settle/merge_test.go`): a `NeedsUpdate`-true PR whose rebased
-  tree then fails CI is blocked from merging, rather than landing on the
-  strength of its stale green result.
+  tree then fails CI is not landed on the strength of its stale green result:
+  it gets the fix-pass budget first, and only exhausting that blocks the merge
+  (see the Amendment).
 - Two distinct preflight failures are handled differently, and deliberately
   so (issue #940). A `NeedsUpdate` *query* error leaves staleness merely
   unknown, so it is logged and swallowed — the normal `Merge` attempt
@@ -128,3 +134,22 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red force-push head spends a fix pass before it fails
+
+Before #5095, a red post-force-push CI re-wait settled the issue `Failed` on
+the spot: `selfHealGate` never dispatched a fix pass for a head the landing
+path had just force-pushed. #5053 went red on one check and failed 13 seconds
+after its force-push, while the same red result on a pre-merge head gets up to
+`MAX_FIX_ATTEMPTS` fix passes. A red result after a force-push is the same CI
+signal, so the clean rebase-retry, stale-base preflight, and conflict-resolve
+force-pushes now all route a red re-wait to the same red-CI fix pass.
+
+That fix pass draws from the same `MAX_FIX_ATTEMPTS` budget as the pre-merge
+red-CI loop, not a fresh allowance per force-push. A head the fix pass turns
+green re-enters the merge path exactly like a first-green head, with the
+rebase-retry and conflict-resolve budgets starting fresh. The issue still ends
+`Failed` (`landing-failed`) when the fix budget is exhausted, when the re-wait
+times out, or when the conflict-resolve dispatch or its outbox relay fails; the
+last two never get a fix pass. The failure comment names how many fix passes
+of the budget were used.
