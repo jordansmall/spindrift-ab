@@ -128,3 +128,28 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+The `TestMergeImmediate_StaleBaseCombinedBreakBlocksMerge` case above still
+holds at the `mergeImmediate` level: a stale-base rebase whose combined tree
+goes red makes it return an error rather than merge. What changed is what
+`selfHeal` does with that error. A genuinely red post-force-push re-wait used
+to settle the issue `Failed` with `landing-failed` at once, even though a red
+head is exactly what the fix pass exists for; issue #5053 saw a
+conflict-resolve force-push go red on `flakemodule-equivalence` and settle 13
+seconds later with no fix pass. Now `selfHeal` dispatches the red-CI fix pass
+against the force-pushed head, whether the force-push came from the
+stale-base preflight, a rebase-retry, or a conflict-resolve Box.
+
+The fix pass draws from the same `MAX_FIX_ATTEMPTS` budget as the pre-merge
+red-CI loop, not a fresh allowance per force-push, so a landing that keeps
+force-pushing cannot fix its way past the cap. A head the fix pass turns green
+re-enters the merge path exactly as a first-green head does, with its own
+rebase-retry and conflict-resolve budgets. The issue still ends `Failed` with
+`landing-failed` when the fix budget is exhausted, when the re-wait times out
+(nothing is red for a fix pass to act on), or when the conflict-resolve
+dispatch or its outbox relay itself fails. The failure comment on a red
+re-wait says how many fix passes the force-pushed head consumed and how many
+of the budget were used in all. A fix pass started this way can still settle
+through its own reasons (`fix-failed`, `fix-no-op`, `budget-exhausted`).
