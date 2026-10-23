@@ -81,6 +81,13 @@ against the other's budget would let a stale-base retry (or vice versa)
 exhaust an allowance the real conflict path still needed. `0` still means
 "no rebase behavior at all," so no second knob is needed for an off-switch.
 
+*Amended by issue #5053:* a red post-force-push re-wait (after this preflight
+rebase, and likewise after a rebase-retry or conflict-resolve) no longer
+settles `landing-failed` at once. It gets a fix pass from the shared
+`MAX_FIX_ATTEMPTS` budget, and a head that goes green re-enters the merge
+path. A re-wait timeout, or a conflict-resolve dispatch or relay failure,
+still fails immediately.
+
 Explicitly **not** chosen: downgrading a stale-but-green PR to manual (the
 merge-guard's pattern, ADR 0016). Under `MERGE_MODE=immediate`, a PR is
 almost always behind main by the time it's ready to land — anything merging
