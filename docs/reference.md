@@ -1678,7 +1678,7 @@ row to also say "(its `--flag` is accepted but inert)" (issue #3855).
 | `DAEMON_FAILURE_BACKOFF` | `1m`  | — (post-freeze; no legacy alias — set `dispatch.daemonFailureBackoff`) | wait a slot backs off for after an unclassified child failure before refilling itself; a Go time.ParseDuration string, validated by the daemon at startup, which refuses to start on a bad value; read by the daemon only, the launcher itself ignores it (its `--flag` is accepted but inert) — see [Daemon](#daemon) |
 | `DAEMON_BREAKER_THRESHOLD` | `5` | — (post-freeze; no legacy alias — set `dispatch.daemonBreakerThreshold`) | pool-wide unclassified failures within `DAEMON_BREAKER_WINDOW` that trip the circuit breaker and halt the whole daemon; validated by the daemon at startup, which refuses to start on a non-positive value; read by the daemon only, the launcher itself ignores it (its `--flag` is accepted but inert) — see [Daemon](#daemon) |
 | `DAEMON_BREAKER_WINDOW` | `15m`  | — (post-freeze; no legacy alias — set `dispatch.daemonBreakerWindow`) | trailing window the circuit breaker counts `DAEMON_BREAKER_THRESHOLD` unclassified failures within; a Go time.ParseDuration string, validated by the daemon at startup, which refuses to start on a bad value; read by the daemon only, the launcher itself ignores it (its `--flag` is accepted but inert) — see [Daemon](#daemon) |
-| `MAX_FIX_ATTEMPTS`     | `3`     | `selfHealing`      | fix-box passes when CI is genuinely red before `agent-failed` (`0` disables self-healing) |
+| `MAX_FIX_ATTEMPTS`     | `3`     | `selfHealing`      | fix-box passes when CI is genuinely red before `agent-failed`, including a head that goes red after a landing force-push (`0` disables self-healing) |
 | `MAX_REBASE_ATTEMPTS`  | `3`     | `selfHealing`      | rebase-and-retry passes when a green PR conflicts with the base after a sibling merge (`0` disables rebase retries); also caps the opt-in [Stale-base preflight](#stale-base-preflight)'s rebase budget |
 | `MAX_RECOVER_ATTEMPTS` | `3`     | — (post-freeze; no legacy alias — set `dispatch.retry.maxRecover`) | queue-mode `spindrift recover` (no issue number) attempts per agent-failed issue and outbox bundle before it gives up with one comment; between attempts the issue waits `TRANSIENT_BACKOFF_SECS` times its attempt count; a hand-run `spindrift recover <n>` ignores the bound |
 | `MAX_BUDGET_TOKENS`    | `0`     | `selfHealing`      | cumulative tokens (every pass and every retried attempt within it) before stopping self-heal short of `MAX_FIX_ATTEMPTS` (`0` disables the token budget cap); also forwarded into the Box, where the orchestrator's own review loop applies the same threshold to its own fresh, Box-local sum (implement/fix/review passes plus dispatched workers in *this* Box only, not the host's cross-Box figure) to commit to a terminal land pass instead of a further BLOCK-triggered review round |
@@ -3513,10 +3513,11 @@ alone rely on being enabled). A `behind_by > 0` hit **proactively rebases the
 branch and re-waits for CI to confirm green on the rebased tree** (its own
 attempt budget off `MAX_REBASE_ATTEMPTS`, independent of the reactive
 conflict-retry loop's counters) before merging — so a PR whose rebase no longer
-compiles against a freshly-merged sibling is blocked at that point instead of
-landing on the strength of its stale green result. A query error is logged and
-swallowed rather than blocking the merge; the ordinary `Merge` call surfaces
-any real problem through its already-tested error handling.
+compiles against a freshly-merged sibling is blocked at that point, and handed
+to the red-CI fix pass, instead of landing on the strength of its stale green
+result. A query error is logged and swallowed rather than blocking the merge;
+the ordinary `Merge` call surfaces any real problem through its already-tested
+error handling.
 
 This is a launcher-side sanity check, not an adversary-proof gate, and it
 exists on the `github` and `forgejo` Code Forge merge paths for the same reason
@@ -6637,16 +6638,20 @@ enter several: one wait per self-heal attempt, so `MAX_FIX_ATTEMPTS`
 force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
-`PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
+`PREFLIGHT_STALE_BASE` is on. A force-pushed head that re-waits red spends
+a fix attempt, and a head the fix turns green comes back through the merge
+path with fresh rebase budgets, so those re-waits repeat once per green
+head. The ceiling is therefore
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` poll windows: sixteen
+at the defaults, about sixteen hours of polling alone, or
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 2)` (twenty) with the
 stale-base preflight enabled. Each red gate and each conflict a rebase
-cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
-enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
-that confirms green on its first poll and merges adds only seconds to the
-Box's runtime. The one-shot wave has no refill loop to stop — its batch is
+cannot resolve also dispatches its own Box — up to three fix Boxes, and up
+to three conflict-resolve Boxes per green head, or four with the stale-base
+preflight enabled, which keeps its own retry budget — and those runtimes
+land on top of the polling. The floor is the other end of the same range: a
+settle that confirms green on its first poll and merges adds only seconds to
+the Box's runtime. The one-shot wave has no refill loop to stop — its batch is
 fixed up front — so there the first signal simply means launch nothing
 further from that batch while whatever is already running finishes and
 settles. The launcher prints a line when a drain begins, so an operator can
@@ -8301,10 +8306,11 @@ sends.
 runtime *and that Box's settle*. Size it against the settle's *ceiling*,
 not the Box runtime alone and not the Box runtime plus a single
 `MERGE_POLL_TIMEOUT`. At the defaults that ceiling is
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
-windows — seven of them, about seven hours of polling, or eight with the
-stale-base preflight enabled — plus the runtimes of up to three fix Boxes
-and up to three conflict-resolve Boxes, or four with that same preflight;
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` fresh
+`MERGE_POLL_TIMEOUT` windows — sixteen of them, about sixteen hours of
+polling, or twenty with the stale-base preflight enabled — plus the
+runtimes of up to three fix Boxes and up to three conflict-resolve Boxes
+per green head, or four with that same preflight;
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
 below even the floor, so leaving it at the default means `SIGKILL` lands

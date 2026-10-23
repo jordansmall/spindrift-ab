@@ -128,3 +128,25 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets the fix pass
+
+The decision above stands, but the outcome for a head that goes red after a
+landing force-push has changed. Previously the post-force-push CI re-wait
+ending red settled the issue `Failed` (`landing-failed`) on the spot. In
+issue #5053 a conflict-resolve force-push went red on
+`flakemodule-equivalence` and settled 13 seconds later with no fix pass.
+
+A rebase can surface a real combined break between the agent's change and the
+new base, which is exactly what the red-CI fix pass exists to repair. A red
+force-pushed head now dispatches that fix pass, drawing from the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI loop rather than a fresh
+allowance per force-push. A head the fix pass turns green re-enters the merge
+path as a first-green head does, with fresh rebase-retry and conflict-resolve
+budgets.
+
+The issue still ends `Failed` when the fix budget is exhausted, when a fix
+pass itself fails (as in the pre-merge loop), when the re-wait times out, or
+when the conflict-resolve dispatch or its outbox relay fails. The failure
+comment reports the fix attempts the force-pushed head consumed and the total
+used from the shared budget.

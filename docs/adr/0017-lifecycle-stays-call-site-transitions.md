@@ -30,6 +30,12 @@ same "never produced a green PR" condition `InProgress→Failed` already covers
 for a box crash or exhausted fix passes, just discovered later, mid-landing.
 Still the same edge, still named inline at its call site — no new edge.
 
+> **Amended by [ADR 0026](0026-preflight-stale-base-before-merge.md) (issue
+> #5053):** a red post-force-push re-wait now draws a fix pass first and
+> settles Failed the way the pre-merge loop does (budget exhausted, or a fix
+> pass fails); a timed-out re-wait or a failed conflict-resolve dispatch or
+> relay still fails at once.
+
 Re-open trigger: a transition added outside the claim or settle paths, or a
 conditional edge — one whose legality depends on runtime state rather than
 the static table above. Until then, architecture reviews should not
