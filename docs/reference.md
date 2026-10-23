@@ -6638,21 +6638,26 @@ force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
-cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
-enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
-that confirms green on its first poll and merges adds only seconds to the
-Box's runtime. The one-shot wave has no refill loop to stop — its batch is
-fixed up front — so there the first signal simply means launch nothing
-further from that batch while whatever is already running finishes and
-settles. The launcher prints a line when a drain begins, so an operator can
-tell a drain from a hang. Teardown runs on every signalled path, and behavior
-is identical under the OCI and bwrap runtimes — nothing in the signal path
-branches on runtime.
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` poll windows: sixteen
+at the defaults, about sixteen hours of polling alone, or twenty windows
+(`MAX_REBASE_ATTEMPTS + 2` per gate wait) with the stale-base preflight
+enabled, which adds nothing at `MAX_REBASE_ATTEMPTS=0`, since the preflight
+skips its rebase there. It is a product because a red re-wait after a force-push spends
+a fix pass, and a head that fix pass turns green re-enters the merge path
+with fresh rebase and preflight budgets, so each of the
+`MAX_FIX_ATTEMPTS + 1` gate waits can carry its own rebase windows. Each
+red gate and each conflict a rebase cannot resolve also dispatches its own
+Box — up to three fix Boxes (the shared budget still caps them) and up to
+twelve conflict-resolve Boxes, or sixteen with the stale-base preflight
+enabled — and those runtimes land on top of the polling. The floor is the
+other end of the same range: a settle that confirms green on its first poll
+and merges adds only seconds to the Box's runtime. The one-shot wave has no
+refill loop to stop — its batch is fixed up front — so there the first
+signal simply means launch nothing further from that batch while whatever
+is already running finishes and settles. The launcher prints a line when a
+drain begins, so an operator can tell a drain from a hang. Teardown runs on
+every signalled path, and behavior is identical under the OCI and bwrap
+runtimes — nothing in the signal path branches on runtime.
 
 A **second** signal abandons that wait: the launcher reaps every in-flight Box
 and releases each of their issues off the in-progress label back to
@@ -8301,10 +8306,11 @@ sends.
 runtime *and that Box's settle*. Size it against the settle's *ceiling*,
 not the Box runtime alone and not the Box runtime plus a single
 `MERGE_POLL_TIMEOUT`. At the defaults that ceiling is
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
-windows — seven of them, about seven hours of polling, or eight with the
-stale-base preflight enabled — plus the runtimes of up to three fix Boxes
-and up to three conflict-resolve Boxes, or four with that same preflight;
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` fresh
+`MERGE_POLL_TIMEOUT` windows — sixteen of them, about sixteen hours of
+polling, or twenty with the stale-base preflight enabled — plus the runtimes
+of up to three fix Boxes and up to twelve conflict-resolve Boxes, or sixteen
+with that same preflight;
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
 below even the floor, so leaving it at the default means `SIGKILL` lands
