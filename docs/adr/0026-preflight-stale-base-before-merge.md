@@ -128,3 +128,24 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red post-force-push head gets the fix pass
+
+Under `MERGE_MODE=immediate`, every force-push on the landing path — this
+preflight's rebase, the reactive rebase-retry, or an agent conflict-resolve
+Box — re-waits for CI on the new head. A red re-wait used to settle the issue
+`Failed` (`landing-failed`), though a red head is exactly what the red-CI fix
+pass exists for. It now dispatches that fix pass, drawing on the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI loop — shared, not a fresh
+allowance. A head the fix pass turns green re-enters the merge path exactly
+as a first-green head, its rebase-retry and conflict-resolve budgets reset.
+
+The issue still ends `Failed` with `landing-failed` when the fix budget is
+exhausted on a force-pushed head, whether the budget was already spent before
+its first red or a fix pass left it red. The failure comment names the passes
+that head consumed and the run-wide total. It also ends `Failed` when the
+re-wait times out, or when the conflict-resolve dispatch or its outbox relay
+fails. A spent token/USD cap still settles `budget-exhausted` ahead of a
+pending fix pass, as it does for any red. The `#670`/`#672` consequence above
+stands: a stale-base rebase that breaks CI is still blocked from merging on
+its stale green result; it is now fixed rather than abandoned.

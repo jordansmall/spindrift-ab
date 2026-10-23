@@ -30,6 +30,11 @@ same "never produced a green PR" condition `InProgress→Failed` already covers
 for a box crash or exhausted fix passes, just discovered later, mid-landing.
 Still the same edge, still named inline at its call site — no new edge.
 
+*Amended by issue #5095:* a red re-wait now goes through the red-CI fix pass
+first (the shared `MAX_FIX_ATTEMPTS` budget; ADR 0026's amendment), so that
+case reaches this edge only once the budget runs out — the edge itself is
+unchanged.
+
 Re-open trigger: a transition added outside the claim or settle paths, or a
 conditional edge — one whose legality depends on runtime state rather than
 the static table above. Until then, architecture reviews should not

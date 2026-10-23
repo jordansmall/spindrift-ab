@@ -6640,9 +6640,14 @@ launcher re-waits for green on the new head — once per
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
 defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
-cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
+stale-base preflight enabled. That is the ceiling for one pass through the
+merge path: a force-pushed head that goes red gets a fix pass out of the same
+`MAX_FIX_ATTEMPTS` budget, and a fixed head re-enters the merge path with its
+rebase budgets reset, so the worst case repeats those rebase windows once per
+fix pass spent that way. Each red gate and each conflict a rebase
+cannot resolve also dispatches its own Box — up to three fix Boxes (capped at
+`MAX_FIX_ATTEMPTS` for the whole run) and up to three conflict-resolve Boxes
+per pass through the merge path (more when fix passes re-enter it), or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
 of the polling. The floor is the other end of the same range: a settle
 that confirms green on its first poll and merges adds only seconds to the
