@@ -128,3 +128,44 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push re-wait gets a fix pass
+
+The Decision says a CI failure on the rebased tree demotes the same way a
+genuine red gate result always has, and a genuine red gate result gets fix
+passes. But the re-wait (shared with rebase-retry and conflict-resolve, issue
+#758) mapped red to `errLandingNeverGreen`, which settled `Failed` with no fix
+pass. Issue #5053 showed the cost: a conflict-resolve force-push went red on
+one check and settled `landing-failed` 13s later.
+
+For every force-push (preflight rebase, rebase-retry, conflict-resolve), a
+red re-wait now hands the head to selfHeal's red-CI fix arm. The fix pass
+shares the `MAX_FIX_ATTEMPTS` budget with the pre-merge loop rather than
+getting a fresh allowance per force-push. A head the fix turns green
+re-enters selfHeal's green arm like a first-green head: the ready flip, merge
+guard and tuning hold, then the merge mode, with fresh rebase-retry and
+conflict-resolve budgets. A fix pass that fails or changes nothing, a tripped
+token/USD budget cap, or a later gate timeout on the fixed head settles as it
+would pre-merge (`fix-failed`, `fix-no-op`, `budget-exhausted`,
+`gate-terminal`), not `landing-failed`. The issue still ends `Failed`
+(`landing-failed`) when the budget is exhausted (the comment names the passes
+the force-pushed head consumed), when the re-wait times out, or when the
+conflict-resolve dispatch or its relay fails.
+
+Mechanism: `rewaitAfterForcePush` returns `errForcePushedRed` for red,
+distinct from `errLandingNeverGreen` (timeout, dispatch/relay failure), which
+still fails outright.
+
+Rationale: a combined-tree red is the same class of failure the fix pass
+exists for, and failing it outright wasted a cheap repair. Sharing the budget
+keeps a flapping force-push loop from multiplying fix passes.
+
+Tests: `TestSelfHeal_ForcePushRedFixSucceeds`,
+`TestSelfHeal_StaleBasePreflightRedFixSucceeds`,
+`TestSelfHeal_ForcePushRedFixResetsRebaseBudget`,
+`TestSelfHeal_ForcePushRedSharedBudgetExhausted`,
+`TestSelfHeal_ForcePushRedFixExhausted`
+(`internal/settle/forcepush_fix_test.go`),
+`TestSelfHeal_ConflictResolveRelayFailure_EndsFailed` and
+`TestSelfHeal_RewaitAfterForcePush_EndsFailed`
+(`internal/settle/ready_test.go`).
