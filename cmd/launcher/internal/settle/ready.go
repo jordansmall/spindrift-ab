@@ -124,8 +124,8 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 					if s.terminated(num, gen) {
 						return landingAbandoned, ""
 					}
-					if landing, note, stop := s.runFixPass(d, num, gen, pr, attempt); stop {
-						return landing, note
+					if fs := s.runFixPass(d, num, gen, pr, attempt); fs.stop {
+						return fs.landing, fs.note
 					}
 					forcePushRed = true
 					forcePushFixes++
@@ -183,8 +183,8 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 				s.transitionState(num, forge.InProgress, forge.Failed, reason, exhaustedReason)
 				return landingFailed, reason
 			}
-			if landing, note, stop := s.runFixPass(d, num, gen, pr, attempt); stop {
-				return landing, note
+			if fs := s.runFixPass(d, num, gen, pr, attempt); fs.stop {
+				return fs.landing, fs.note
 			}
 			if forcePushRed {
 				forcePushFixes++
@@ -204,11 +204,18 @@ func (s *Settle) landingNeverGreen(num, pr string, err error, forcePushFixes, at
 	return landingFailed, err.Error()
 }
 
-// runFixPass runs one self-heal fix pass against pr's red head. stop=true
-// means the caller must return (landing, note); stop=false means the pass
-// ran and pushed, so the caller polls the gate again. The caller owns the
-// terminated and MaxFixAttempts exhaustion checks that precede it.
-func (s *Settle) runFixPass(d dispatch.Dispatcher, num string, gen uint64, pr string, attempt int) (landingResult, string, bool) {
+// fixStop is runFixPass's verdict. stop=true means the caller must return
+// (landing, note); the zero value means the pass ran and pushed, so the
+// caller polls the gate again.
+type fixStop struct {
+	landing landingResult
+	note    string
+	stop    bool
+}
+
+// runFixPass runs one self-heal fix pass against pr's red head. The caller
+// owns the terminated and MaxFixAttempts exhaustion checks that precede it.
+func (s *Settle) runFixPass(d dispatch.Dispatcher, num string, gen uint64, pr string, attempt int) fixStop {
 	// The budget caps (issue #2001) stop a runaway token or cost run
 	// even while MaxFixAttempts would still allow more passes. Both
 	// knobs unset skips the check, so the no-cap path never pays
@@ -219,7 +226,7 @@ func (s *Settle) runFixPass(d dispatch.Dispatcher, num string, gen uint64, pr st
 			s.it.Comment(num, fmt.Sprintf("budget exhausted (%s) — stopping self-heal before another fix pass", reason))
 			note := fmt.Sprintf("budget-exhausted: %s", reason)
 			s.transitionState(num, forge.InProgress, forge.Failed, note, ReasonBudgetExhausted)
-			return landingFailed, note, true
+			return fixStop{landing: landingFailed, note: note, stop: true}
 		}
 	}
 	fmt.Printf("    #%s  landing=%s  fix-pass=%d/%d\n", num, pr, attempt+1, s.cfg.MaxFixAttempts)
@@ -240,12 +247,7 @@ func (s *Settle) runFixPass(d dispatch.Dispatcher, num string, gen uint64, pr st
 	// Catches d.Fix's own exit — a non-zero result can be Reclaim's
 	// SIGKILL — before the Failed commit or bundle relay below.
 	if s.terminated(num, gen) {
-		return landingAbandoned, "", true
-	}
-	type fixStop struct {
-		landing landingResult
-		note    string
-		stop    bool
+		return fixStop{landing: landingAbandoned, stop: true}
 	}
 	stopped := dispatch.Route(disp,
 		func() fixStop {
@@ -268,7 +270,7 @@ func (s *Settle) runFixPass(d dispatch.Dispatcher, num string, gen uint64, pr st
 			return fixStop{}
 		})
 	if stopped.stop {
-		return stopped.landing, stopped.note, true
+		return stopped
 	}
 	// A read-only Box holds no push-capable token (issue #1979): its fix
 	// agent bundled its work to the outbox, so HeadCommitSHA reflects no
@@ -279,7 +281,7 @@ func (s *Settle) runFixPass(d dispatch.Dispatcher, num string, gen uint64, pr st
 		// A stop mid-backoff already released num (issue #3523); falling
 		// through would log a failure and sleep the no-op confirm poll.
 		if errors.Is(err, errAbandoned) {
-			return landingAbandoned, "", true
+			return fixStop{landing: landingAbandoned, stop: true}
 		}
 		fmt.Printf("    #%s  landing=%s  status=fix-relay-failed  !! %v\n", num, pr, err)
 	}
@@ -296,17 +298,17 @@ func (s *Settle) runFixPass(d dispatch.Dispatcher, num string, gen uint64, pr st
 				// Catches a mark landing during the confirm sleep,
 				// before the fix-no-op Failed commit below.
 				if s.terminated(num, gen) {
-					return landingAbandoned, "", true
+					return fixStop{landing: landingAbandoned, stop: true}
 				}
 				fmt.Printf("    #%s  landing=%s  status=fix-no-op  !! fix pass %d produced no new commit — aborting self-heal\n", num, pr, attempt+1)
 				s.it.Comment(num, fmt.Sprintf("fix pass %d produced no new commit — aborting self-heal", attempt+1))
 				note := fmt.Sprintf("fix-no-op: fix pass %d produced no new commit", attempt+1)
 				s.transitionState(num, forge.InProgress, forge.Failed, note, ReasonFixNoOp)
-				return landingFailed, note, true
+				return fixStop{landing: landingFailed, note: note, stop: true}
 			}
 		}
 	}
-	return 0, "", false
+	return fixStop{}
 }
 
 // completeLanding is the single Complete-commit gate for the gateGreen arm and
