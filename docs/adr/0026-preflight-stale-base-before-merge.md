@@ -4,9 +4,9 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 >
-> **Amended by issue #5095:** a force-pushed head whose post-force-push re-wait
-> goes red now gets a fix pass from the shared budget instead of settling
-> `Failed` at once. See the amendment at the end of this record.
+> **Amended after issue #5053:** a force-pushed head whose post-force-push
+> re-wait goes red now gets a fix pass from the shared budget instead of
+> settling `Failed` at once. See the amendment at the end of this record.
 
 ## Context
 
@@ -133,14 +133,14 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
 
-## Amendment (issue #5095): a red post-force-push head gets a fix pass
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
 
-Before #5095, an `immediate` landing that force-pushed a head (a clean
-rebase-retry, the stale-base preflight rebase, or an agent conflict-resolve
-box) and then saw its post-force-push CI re-wait end red settled
-`landing-failed` at once, with no fix pass. Parent #5053 hit this: a
-conflict-resolve force-push went red and the issue settled `landing-failed`
-13 seconds later, though the failure was one a fix pass could have repaired.
+An `immediate` landing that force-pushed a head (a clean rebase-retry, the
+stale-base preflight rebase, or an agent conflict-resolve box) and then saw
+its post-force-push CI re-wait end red used to settle `landing-failed` at
+once, with no fix pass. Issue #5053 hit this: a conflict-resolve force-push
+went red and the issue settled `landing-failed` 13 seconds later, though the
+failure was one a fix pass could have repaired.
 
 The re-wait going red now dispatches the existing red-CI fix pass from the
 same `MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop spends. A head that
@@ -152,5 +152,5 @@ runs out.
 The landing still settles `Failed` in three cases, none of which spends a fix
 pass: the fix budget is already exhausted at the red re-wait, the re-wait
 times out, or the conflict-resolve dispatch or its outbox relay fails. The
-failure comment names the fix passes used, so a human can see how much of the
-budget the head consumed.
+failure comment names the fix passes used and how many of them followed a
+force-push, so a human can see how much of the budget the head consumed.
