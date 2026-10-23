@@ -73,11 +73,12 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
-`MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
-conflict-retry loop — the two are independent triggers, and charging one
-against the other's budget would let a stale-base retry (or vice versa)
+the same way a genuine red gate result always has (amended by issue #5053: a
+fix pass first, then demotion once the fix budget is spent); a clean rebase
+proceeds to merge as before. The preflight rebase draws its own attempt
+budget off `MAX_REBASE_ATTEMPTS` rather than sharing counters with the
+reactive conflict-retry loop — the two are independent triggers, and charging
+one against the other's budget would let a stale-base retry (or vice versa)
 exhaust an allowance the real conflict path still needed. `0` still means
 "no rebase behavior at all," so no second knob is needed for an off-switch.
 
@@ -128,3 +129,12 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): Red post-force-push head
+
+A rebased tree that ends genuinely red no longer demotes the issue on the
+spot. The host dispatches the ordinary red-CI fix pass, drawing from the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge loop, and a head a fix pass turns
+green re-enters the merge path like a first-green head. The issue ends
+`Failed` only once that budget is exhausted, or when the re-wait times out or
+the conflict-resolve dispatch or its outbox relay fails.
