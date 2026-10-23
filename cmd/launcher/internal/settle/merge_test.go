@@ -515,6 +515,9 @@ func TestMergeImmediate_RewaitGenuineRedNotTreatedAsConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("mergeImmediate: want error when re-wait confirms genuine CI red, got nil")
 	}
+	if !errors.Is(err, errForcePushRed) || errors.Is(err, errLandingNeverGreen) {
+		t.Errorf("genuine CI red after force-push must wrap only errForcePushRed; got %v", err)
+	}
 	if errors.Is(err, forge.ErrMergeConflict) {
 		t.Errorf("genuine CI red after force-push must not surface as forge.ErrMergeConflict; got %v", err)
 	}
