@@ -29,6 +29,9 @@ never re-confirms green, so there is no green PR at the current head — the
 same "never produced a green PR" condition `InProgress→Failed` already covers
 for a box crash or exhausted fix passes, just discovered later, mid-landing.
 Still the same edge, still named inline at its call site — no new edge.
+(Amended by issue #5053: a red re-wait now spends a fix pass first, from the
+budget the pre-merge red loop uses, and reaches this edge only once that
+budget is spent.)
 
 Re-open trigger: a transition added outside the claim or settle paths, or a
 conditional edge — one whose legality depends on runtime state rather than

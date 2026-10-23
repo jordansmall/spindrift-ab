@@ -128,3 +128,33 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+Issue #5053's conflict-resolve force-push went red on `flakemodule-equivalence`,
+and the issue settled `landing-failed` 13 seconds later with no fix pass. The
+red was the kind the pre-merge loop repairs with a fix Box, but a red re-wait
+after a force-push settled `Failed` at once, so the force-pushed head never got
+the attempt a first-green head would have had.
+
+A red re-wait now spends a fix pass. The rule covers all three force-push
+sources: the reactive rebase-retry, the stale-base preflight this ADR adds, and
+the conflict-resolve Box. The pass draws on the same `MAX_FIX_ATTEMPTS` budget
+as the pre-merge red loop rather than a fresh allowance per force-push, so the
+fix passes stay bounded by `MAX_FIX_ATTEMPTS` however many force-pushes a
+landing makes. A head the pass turns green re-enters the merge path like a
+first-green head: it is marked ready, clears the merge guard and tuning hold,
+and gets a fresh merge whose rebase-retry, conflict-resolve, and preflight
+budgets start over. The issue still ends `Failed` (`landing-failed`) when the
+shared budget runs out, when the re-wait times out, or when the conflict-resolve
+dispatch or its outbox relay fails. The landing-failed comment names how many
+fix passes were used. A timeout is not treated as red, since nothing says the
+head is broken.
+
+The settle's worst-case CI wait bound grows as a result, because each fix pass
+can re-enter the merge path with a full set of rebase re-waits. The arithmetic
+is in the settle ceiling passage of `docs/reference.md`. The new behaviour is
+covered by `TestSelfHeal_PostForcePushRed_FixPassThenMerges`,
+`TestSelfHeal_PostForcePushRed_NoFixBudgetLeftEndsFailed`, and
+`TestSelfHeal_ForcePushNonRedFailures_NoFixPass` in
+`cmd/launcher/internal/settle/fix_test.go`.
