@@ -355,7 +355,7 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushRed},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -866,5 +866,14 @@ func TestSelfHeal_TuningHold_CommentPRErrorStillHolds(t *testing.T) {
 	}
 	if fc.Merged != "" {
 		t.Errorf("a held PR must not merge; fc.Merged=%q", fc.Merged)
+	}
+}
+
+// A re-wait that times out is a stuck CI, not a red head, so it must not
+// qualify for a fix pass (issue #5053).
+func TestRewaitGateResultErr_TimeoutIsNotForcePushRed(t *testing.T) {
+	err := rewaitGateResultErr(gateTerminal, "ci-timeout", testPR)
+	if errors.Is(err, errForcePushRed) {
+		t.Errorf("rewaitGateResultErr(gateTerminal) = %v, must not match errForcePushRed", err)
 	}
 }
