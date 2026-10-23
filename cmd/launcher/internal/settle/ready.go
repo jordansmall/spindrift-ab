@@ -114,6 +114,10 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 				if errors.Is(err, errForcePushedRed) && attempt < s.cfg.MaxFixAttempts {
 					// Falls out of the switch into the fix pass below, which
 					// draws on the same attempt budget as the pre-merge loop.
+					// A mark landing during the re-wait must not start a Box.
+					if s.terminated(num, gen) {
+						return landingAbandoned, ""
+					}
 					break
 				}
 				if errors.Is(err, errLandingNeverGreen) {
@@ -171,6 +175,7 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 			}
 		}
 		// Reached from a red gate poll, or from a red force-pushed head (issue #5095).
+
 		// The budget caps (issue #2001) stop a runaway token or cost run
 		// even while MaxFixAttempts would still allow more passes. Both
 		// knobs unset skips the check, so the no-cap path never pays
