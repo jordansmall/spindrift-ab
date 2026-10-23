@@ -73,6 +73,7 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 		case gateAbandoned:
 			return landingAbandoned, ""
 		case gateGreen:
+			forcePushed = false
 			// Catches a mark landing during the gate's own confirm sleep,
 			// before MarkReady's idempotent ready flip below.
 			if s.terminated(num, gen) {
@@ -115,7 +116,8 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 				}
 				if errors.Is(err, errForcePushRed) {
 					// Re-poll the red head so the red arm dispatches the fix
-					// pass; the re-poll itself consumes no attempt.
+					// pass; the re-poll itself consumes no attempt (the loop's
+					// attempt++ undoes this decrement).
 					forcePushed = true
 					attempt--
 					continue
