@@ -4,6 +4,11 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended:** a red CI result on the preflight-rebased head (or any other
+> force-pushed head) no longer demotes on the spot. It first gets the red-CI
+> fix pass, drawing on the same `MAX_FIX_ATTEMPTS` budget as the pre-merge
+> loop, and ends `Failed` with `landing-failed` only once that budget is spent.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the

@@ -21,10 +21,10 @@ import (
 // on an issue whose state another actor owns.
 var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns the issue)")
 
-// errLandingNeverGreen marks a force-pushed head that never reached green. A
-// merge failure on an already-green PR leaves the issue agent-complete (ADR
-// 0012); here no green PR exists at the current head, so selfHeal demotes to
-// agent-failed instead (issue #758).
+// errLandingNeverGreen marks a force-pushed head that will never reach green:
+// its re-wait timed out, the conflict-resolve dispatch or relay failed, or it
+// re-waited red (errForcePushRed) and the shared fix budget is spent. Unlike a
+// merge failure on a green PR (ADR 0012), it settles the issue Failed.
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
 
 // errForcePushRed marks a force-pushed head whose re-wait ended in genuine red
