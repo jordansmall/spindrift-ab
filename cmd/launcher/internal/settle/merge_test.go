@@ -1161,3 +1161,25 @@ func TestApplyMergeMode_Auto_EnqueueFailureFallsBack(t *testing.T) {
 		t.Error("a warning comment must be posted when auto-merge enqueue fails")
 	}
 }
+
+// A post-force-push re-wait that comes back red is errForcePushedRed, never
+// errLandingNeverGreen: selfHealGate dispatches a fix pass for it instead of
+// settling Failed.
+func TestMergeImmediate_RewaitRedReturnsForcePushedRed(t *testing.T) {
+	c := baseConfig()
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake()
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-complete"}})
+	fc.SetCheckStates(testPR, []forge.RollupState{forge.StateFailure})
+	s := newTestSettle(c, fc, fc)
+
+	err := s.mergeImmediate("1", 0, testPR, nil)
+
+	if !errors.Is(err, errForcePushedRed) {
+		t.Fatalf("mergeImmediate err = %v, want errForcePushedRed", err)
+	}
+	if errors.Is(err, errLandingNeverGreen) {
+		t.Errorf("a red re-wait must not wrap errLandingNeverGreen; err=%v", err)
+	}
+}
