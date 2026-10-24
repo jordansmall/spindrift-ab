@@ -128,3 +128,34 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass before landing fails
+
+A conflict-resolve Box force-pushed a head, the post-force-push re-wait went
+red on one check, and the issue settled `landing-failed` 13 seconds later with
+no fix pass. The original rule (a force-pushed head that never went green ends
+`Failed`, `errLandingNeverGreen`, issue #758) treated a red re-wait and a
+timeout alike. But red is fixable, and the red-CI fix pass already exists, so
+the rule now splits them:
+
+- A red re-wait after a force-push returns `errForcePushedRed`. `selfHealGate`
+  spends a fix pass on it from the shared `MAX_FIX_ATTEMPTS` budget, not a
+  fresh allowance per force-push, and loops back through the gate. A head that
+  turns green re-enters the merge path like a first-green head, with fresh
+  rebase and conflict-resolve budgets.
+- A timeout, a failed conflict-resolve dispatch, or a failed relay keeps
+  `errLandingNeverGreen` and settles `Failed` without a fix pass.
+- The failure comment names the passes used, as `(N of M fix pass(es) used)`.
+  N is the issue's total across the pre-merge loop and every force-pushed head,
+  the figure that explains an exhausted shared budget, so an unfixable failure
+  (a timeout, failed dispatch, or failed relay) can read `0 of M`.
+
+Consequences: the worst-case settle length multiplies, since each merge-path
+entry gets its own rebase budget. See the graceful-drain bound in
+[reference.md](../reference.md). Covered by
+`TestSelfHeal_ForcePushedRedRewait_FixesAndMerges`,
+`TestSelfHeal_ForcePushedRedRewait_AfterConflictResolve_FixesAndMerges`,
+`TestSelfHeal_ForcePushedRedRewait_BudgetExhaustedEndsFailed`,
+`TestSelfHeal_RewaitAfterForcePush_TimeoutEndsFailed`,
+`TestSelfHeal_ConflictResolveRelayFailure_EndsFailed`, and
+`TestRewaitGateResultErr_ExplicitCases`.
