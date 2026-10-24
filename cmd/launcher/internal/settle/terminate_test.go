@@ -982,3 +982,48 @@ func TestSettle_PushOnlyAbandonedSkipsUsageComment(t *testing.T) {
 
 	assertNoTransitionOrComment(t, fc)
 }
+
+// A mark landing during the post-force-push re-wait's last (red) poll must
+// abandon before the fix pass or the Failed commit (issue #3523).
+func TestSelfHeal_TerminatedPostPushRed_ReportsAbandoned(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		maxFix int
+	}{
+		{"fix pass available", 1},
+		{"budget exhausted", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := baseConfig()
+			c.MergeMode = "immediate"
+			c.MaxRebaseAttempts = 3
+			c.MaxFixAttempts = tc.maxFix
+			c.MergePollTimeout = 100
+			fc := forge.NewFake(testDispatchLabels)
+			fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+			fc.SetCheckStates(testPR, []forge.RollupState{
+				forge.StateSuccess, forge.StateSuccess, forge.StateFailure})
+			fc.MergeErrs = []error{forge.ErrMergeConflict, nil}
+			tf := &terminatingAfterPolls{Fake: fc, num: "1", markAfter: 3}
+			s := newTestSettle(c, tf, tf)
+			tf.reg = s.Registry()
+
+			d := dispatch.NewFake()
+			landing, _ := s.selfHeal(d, "1", 0, testPR)
+
+			if landing != landingAbandoned {
+				t.Errorf("selfHeal = %v, want landingAbandoned", landing)
+			}
+			if len(d.FixCalls) != 0 {
+				t.Errorf("Fix must not run after termination; got %+v", d.FixCalls)
+			}
+			iss, _ := fc.Issue("1")
+			if containsLabel(iss.Labels, "agent-failed") {
+				t.Errorf("must not carry agent-failed; labels=%v", iss.Labels)
+			}
+			// MarkReady ran at the first green, before the mark, so only
+			// transitions and comments are asserted.
+			assertNoTransitionOrComment(t, fc)
+		})
+	}
+}
