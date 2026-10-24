@@ -2933,12 +2933,17 @@ ready-for-agent ──dispatch──▶ agent-in-progress ───landing settl
 - **Red CI self-heals before it fails.** If CI goes genuinely red, the launcher
   dispatches up to `MAX_FIX_ATTEMPTS` fix boxes on the same branch and re-gates
   after each. Only once those are exhausted (or a fix box exits non-zero
-  after transient retries) does it swap to `agent-failed` and stop. There are
-  **no automatic re-dispatches from `ready-for-agent`**: a human inspects
-  `.spindrift/logs/issue-<n>.log` and re-labels to retry. A fix box's transient
-  exits get the same in-session retry as the initial run — a 429 mid-fix-pass
-  holds until the reset time and re-dispatches rather than burning one of the
-  `MAX_FIX_ATTEMPTS` slots. The settle's own warnings sit beside that log in
+  after transient retries) does it swap to `agent-failed` and stop. The same fix
+  passes, from the same `MAX_FIX_ATTEMPTS` budget, also cover a head that an
+  `immediate` landing force-pushed (a rebase-retry, the stale-base preflight,
+  or an agent conflict-resolve) and that went red on its re-wait: a fix pass
+  that turns it green re-enters the merge path, and a red head is never
+  merged. There are **no automatic re-dispatches from `ready-for-agent`**: a
+  human inspects `.spindrift/logs/issue-<n>.log` and re-labels to retry. A
+  fix box's transient exits get the same in-session retry as the initial run —
+  a 429 mid-fix-pass holds until the reset time and re-dispatches rather than
+  burning one of the `MAX_FIX_ATTEMPTS` slots. The settle's own warnings sit
+  beside that log in
   `.spindrift/logs/issue-<n>.warnings` (butler:
   `issue-butler-<chore>.warnings`), one per line: the initial run's, then each
   fix pass's (prefixed `fix pass N:`). A settle replaces an earlier run's
@@ -6638,14 +6643,20 @@ force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
-cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
-enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
-that confirms green on its first poll and merges adds only seconds to the
+`1 + MAX_FIX_ATTEMPTS + (MAX_FIX_ATTEMPTS + 1) × MAX_REBASE_ATTEMPTS` poll
+windows: sixteen at the defaults, about sixteen hours of polling alone, or
+twenty with the stale-base preflight enabled. The `MAX_FIX_ATTEMPTS + 1`
+factor is because a fix pass that turns a force-pushed head green re-enters
+the merge path with fresh rebase and preflight budgets, so there are up to
+`MAX_FIX_ATTEMPTS + 1` merge-path entries (the first green, then one per fix
+pass), each allowing up to `MAX_REBASE_ATTEMPTS` force-push re-waits and,
+with the preflight on, one more. Each red gate and each conflict a rebase
+cannot resolve also dispatches its own Box — up to three fix Boxes, still
+capped at `MAX_FIX_ATTEMPTS`, and up to twelve conflict-resolve Boxes, or
+sixteen with the stale-base preflight enabled, which keeps its own retry
+budget — and those runtimes land on top of the polling. The floor is the
+other end of the same range: a settle that confirms green on its first poll
+and merges adds only seconds to the
 Box's runtime. The one-shot wave has no refill loop to stop — its batch is
 fixed up front — so there the first signal simply means launch nothing
 further from that batch while whatever is already running finishes and
@@ -8301,10 +8312,11 @@ sends.
 runtime *and that Box's settle*. Size it against the settle's *ceiling*,
 not the Box runtime alone and not the Box runtime plus a single
 `MERGE_POLL_TIMEOUT`. At the defaults that ceiling is
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
-windows — seven of them, about seven hours of polling, or eight with the
-stale-base preflight enabled — plus the runtimes of up to three fix Boxes
-and up to three conflict-resolve Boxes, or four with that same preflight;
+`1 + MAX_FIX_ATTEMPTS + (MAX_FIX_ATTEMPTS + 1) × MAX_REBASE_ATTEMPTS` fresh
+`MERGE_POLL_TIMEOUT` windows — sixteen of them, about sixteen hours of
+polling, or twenty with the stale-base preflight enabled — plus the runtimes
+of up to three fix Boxes and up to twelve conflict-resolve Boxes, or sixteen
+with that same preflight;
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
 below even the floor, so leaving it at the default means `SIGKILL` lands

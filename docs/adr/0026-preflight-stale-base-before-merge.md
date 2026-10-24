@@ -128,3 +128,44 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass before it fails
+
+#5053's landing settled `landing-failed` 13 seconds after a conflict-resolve
+force-push went red on `flakemodule-equivalence`, with no fix pass run at all.
+A force-pushed head that never re-confirms green still ends `Failed`, but the
+first red re-wait now spends the same red-CI fix pass as any other red head.
+
+This covers the preflight's rebased tree and the reactive rebase-retry and
+conflict-resolve force-pushes alike. A red re-wait returns `errForcePushRed`
+from `rewaitAfterForcePush`, and the self-heal loop dispatches a fix pass from
+the shared `MAX_FIX_ATTEMPTS` budget. A head that the fix turns green re-enters
+the merge path with fresh preflight and rebase-retry budgets. Three exits end the
+issue `landing-failed`: the fix budget runs out (the comment names how many fix
+attempts that head consumed, possibly zero), the re-wait times out, or the
+conflict-resolve dispatch or its outbox relay fails (`errLandingNeverGreen`).
+Every other exit keeps its usual reason, even on a force-pushed head: a fix pass
+that exits non-zero (`fix-failed`), one that pushes no commit (`fix-no-op`), the
+token or cost budget (`budget-exhausted`), or a gate timeout or API error after a
+fix pass (`gate-terminal`). Their comments also name the fix count consumed.
+
+A red head is still never merged. The Consequences note above holds at the
+`mergeImmediate` level: a red re-wait now returns `errForcePushRed` where it
+used to return `errLandingNeverGreen`, and the merge never runs.
+
+The tests are in `internal/settle/ready_test.go`:
+`TestSelfHeal_ConflictResolveRelayExhausted_EndsFailedWithoutFixPass`,
+`TestSelfHeal_ForcePushRed_DispatchesFixPassAndMerges`,
+`TestSelfHeal_ForcePushRed_ConflictResolveRewaitFixesAndMerges`,
+`TestSelfHeal_ForcePushRed_StaleBasePreflightRewaitFixesAndMerges`,
+`TestSelfHeal_ForcePushRed_NoBudget_EndsLandingFailed`,
+`TestSelfHeal_ForcePushRed_SharedBudgetWithPreMergeFix`,
+`TestSelfHeal_ForcePushRed_BudgetExhausted_CountsFixes`,
+`TestSelfHeal_ForcePushRed_GateTimeoutAfterFix_StaysGateTerminal`,
+`TestSelfHeal_ForcePushRed_FixFailed_NamesConsumedCount`,
+`TestSelfHeal_ForcePushRed_FixNoOp_NamesConsumedCount`,
+`TestSelfHeal_ForcePushRed_BudgetExhausted_NamesConsumedCount`,
+`TestSelfHeal_ForcePushRed_BudgetSpentBeforeForcePush_NamesZero`, and
+`TestSelfHeal_ConflictResolveAfterGreen_OmitsConsumedCount`. The nil-Dispatcher
+butler patch path is pinned by `TestSettlePatch_ForcePushRedNilDispatcherNoFixPass`
+in `internal/settle/patch_gate_test.go`.
