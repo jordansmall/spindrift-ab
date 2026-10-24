@@ -65,6 +65,9 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 	// into the fix-pass arm below, and stays set so budget exhaustion reports
 	// the landing failure rather than a plain ci-red.
 	forcePushRed := false
+	// forcePushBase is attempt when the current force-pushed head went red, so
+	// the failure comment counts only the passes that head consumed.
+	forcePushBase := 0
 	enterRed := false
 	// attempt counts fix passes run, so only the fix-pass arm advances it.
 	for attempt := 0; ; {
@@ -126,6 +129,7 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 					return landingAbandoned, ""
 				}
 				if errors.Is(err, errForcePushedRed) {
+					forcePushBase = attempt
 					forcePushRed, enterRed = true, true
 					continue
 				}
@@ -162,7 +166,7 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 						num, pr, s.cfg.MaxFixAttempts)
 				}
 				if forcePushRed {
-					reason := fmt.Sprintf("force-pushed head still red after %d fix attempt(s)", attempt)
+					reason := fmt.Sprintf("force-pushed head still red after %d fix attempt(s) (%d of %d shared fix passes used)", attempt-forcePushBase, attempt, s.cfg.MaxFixAttempts)
 					fmt.Printf("    #%s  landing=%s  status=landing-failed  !! %s\n", num, pr, reason)
 					s.it.Comment(num, fmt.Sprintf("landing failed: %s — no green PR exists at the current head", reason))
 					s.transitionState(num, forge.InProgress, forge.Failed, reason, ReasonLandingFailed)

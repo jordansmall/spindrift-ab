@@ -129,7 +129,7 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
 
-## Amendment: a red force-pushed head gets the fix pass first
+## Amendment (issue #5095): a red force-pushed head gets the fix pass first
 
 A red post-force-push re-wait (after a rebase-retry, the stale-base preflight,
 or a conflict-resolve Box) no longer settles `landing-failed` on the spot. The

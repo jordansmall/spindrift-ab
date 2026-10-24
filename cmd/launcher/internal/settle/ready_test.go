@@ -276,7 +276,8 @@ func TestSelfHeal_ConflictResolveAlreadyRunning_ReportsAbandonedNotFailed(t *tes
 
 // When the post-force-push re-wait ends in genuine red CI or a timeout, the
 // issue ends agent-failed: the force-pushed head never produced a green PR
-// (issue #758).
+// (issue #758). A red re-wait ends that way here only because baseConfig has
+// no fix budget; with one, a fix pass runs first (issue #5095).
 func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -928,8 +929,8 @@ func TestSelfHeal_RewaitRedAfterForcePush_SharedBudgetExhausted(t *testing.T) {
 	if landing != landingFailed {
 		t.Errorf("selfHeal = %v, want landingFailed", landing)
 	}
-	if !strings.Contains(reason, "after 1 fix attempt(s)") {
-		t.Errorf("reason = %q, want it to name the 1 attempt used", reason)
+	if !strings.Contains(reason, "after 0 fix attempt(s)") {
+		t.Errorf("reason = %q, want it to name 0 attempts for the force-pushed head", reason)
 	}
 	if len(d.FixCalls) != 1 {
 		t.Errorf("fix calls = %+v, want exactly 1", d.FixCalls)
