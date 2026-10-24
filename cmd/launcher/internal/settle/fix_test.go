@@ -554,3 +554,71 @@ func TestSelfHeal_CleanFixPassRecordsNothing(t *testing.T) {
 		t.Errorf("RecordedWarnings = %q, want none", d.RecordedWarnings)
 	}
 }
+
+func forcePushFixSetup(t *testing.T, maxFix int, states []forge.RollupState) (*Settle, *forge.Fake, *dispatch.Fake) {
+	t.Helper()
+	c := fixConfig(maxFix)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict, nil}
+	fc.SetCheckStates(testPR, states)
+	return newTestSettle(c, fc, fc), fc, dispatch.NewFake()
+}
+
+// A force-pushed head that goes red on the re-wait gets the red-CI fix pass,
+// and a head the pass turns green re-enters the merge path (issue #5095).
+func TestSelfHeal_ForcePushRedFixSucceeds(t *testing.T) {
+	S, F := forge.StateSuccess, forge.StateFailure
+	s, fc, d := forcePushFixSetup(t, 2, []forge.RollupState{S, S, F, S, S})
+	landing, _ := s.selfHeal(d, "1", 0, testPR)
+	if landing != landingMerged {
+		t.Fatalf("selfHeal = %v, want landingMerged", landing)
+	}
+	if passes := fixPasses(d); len(passes) != 1 {
+		t.Errorf("fix passes = %v, want exactly one", passes)
+	}
+	if last := fc.TransitionStateCalls[len(fc.TransitionStateCalls)-1]; last.To != forge.Complete {
+		t.Errorf("last transition To=%v, want Complete", last.To)
+	}
+}
+
+// The force-push fix pass draws from the same budget as the pre-merge loop.
+func TestSelfHeal_ForcePushRedSharesFixBudget(t *testing.T) {
+	S, F := forge.StateSuccess, forge.StateFailure
+	s, fc, d := forcePushFixSetup(t, 1, []forge.RollupState{F, S, S, F})
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+	if landing != landingFailed {
+		t.Fatalf("selfHeal = %v (%s), want landingFailed", landing, reason)
+	}
+	if passes := fixPasses(d); len(passes) != 1 {
+		t.Errorf("fix passes = %v, want only the pre-merge one", passes)
+	}
+	if !strings.Contains(reason, "0 fix attempt(s)") {
+		t.Errorf("reason = %q, want it to name 0 force-push fix attempts", reason)
+	}
+	last := fc.TransitionStateCalls[len(fc.TransitionStateCalls)-1]
+	if last.To != forge.Failed {
+		t.Errorf("last transition To=%v, want Failed", last.To)
+	}
+	if r := s.settledLatch["1"].reason; r != ReasonLandingFailed {
+		t.Errorf("settle reason = %q, want %q", r, ReasonLandingFailed)
+	}
+	if n := len(fc.CommentCalls); n == 0 || !strings.Contains(fc.CommentCalls[n-1].Body, "0 fix attempt(s)") {
+		t.Errorf("comments = %+v, want the last to name the attempt count", fc.CommentCalls)
+	}
+}
+
+// A force-pushed head still red after its fix pass names the attempts used.
+func TestSelfHeal_ForcePushRedExhaustsAfterFix(t *testing.T) {
+	S, F := forge.StateSuccess, forge.StateFailure
+	s, _, d := forcePushFixSetup(t, 1, []forge.RollupState{S, S, F, F})
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+	if landing != landingFailed || !strings.Contains(reason, "after 1 fix attempt(s)") {
+		t.Errorf("selfHeal = %v, %q; want landingFailed after 1 fix attempt(s)", landing, reason)
+	}
+	if len(fixPasses(d)) != 1 {
+		t.Errorf("fix passes = %v, want one", fixPasses(d))
+	}
+}
