@@ -1,5 +1,11 @@
 # The Dispatch lifecycle stays call-site transitions; no lifecycle module
 
+> **Amended by [ADR 0026](0026-preflight-stale-base-before-merge.md):** a red
+> post-force-push re-wait under `immediate` now first gets fix passes from the
+> shared `MAX_FIX_ATTEMPTS` budget, and the issue ends `Failed` only once that
+> budget is spent. A timeout or a conflict-resolve dispatch or relay failure
+> still ends `Failed` directly.
+
 Issue #139 deferred a `cmd/launcher/internal/lifecycle` module (a transition
 table owning the Dispatch lifecycle's valid edges) pending a deletion-test
 re-run once self-heal (#136) and the retry work had landed. Re-run 2026-07-10:
