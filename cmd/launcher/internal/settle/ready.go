@@ -27,6 +27,11 @@ var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns
 // agent-failed instead (issue #758).
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
 
+// errForcePushedRed marks a force-pushed head whose CI re-wait ended red rather
+// than timed out, letting a caller tell the two apart. It always arrives
+// wrapped together with errLandingNeverGreen.
+var errForcePushedRed = errors.New("CI went red after force-push")
+
 // selfHeal polls the merge gate, dispatching fix boxes on genuine red up to
 // MaxFixAttempts times, then applies the merge mode. It swaps agent-complete
 // only once the landing path settles (issue #757). A merge failure on a
@@ -770,16 +775,19 @@ func (s *Settle) rewaitAfterForcePush(num string, gen uint64, pr string) error {
 // folded into a catch-all default, so a future gateResult variant panics here
 // instead of silently landing on "never green" (issue #1175).
 func rewaitGateResultErr(g gateResult, reason, pr string) error {
+	detail := ""
+	if reason != "" {
+		detail = fmt.Sprintf(" (%s)", reason)
+	}
 	switch g {
 	case gateGreen:
 		return nil
 	case gateAbandoned:
 		return errAbandoned
-	case gateTerminal, gateRedRetry:
-		if reason != "" {
-			return fmt.Errorf("%w: CI did not reach green after force-push on %s (%s)", errLandingNeverGreen, pr, reason)
-		}
-		return fmt.Errorf("%w: CI did not reach green after force-push on %s", errLandingNeverGreen, pr)
+	case gateRedRetry:
+		return fmt.Errorf("%w: %w on %s%s", errLandingNeverGreen, errForcePushedRed, pr, detail)
+	case gateTerminal:
+		return fmt.Errorf("%w: CI did not reach green after force-push on %s%s", errLandingNeverGreen, pr, detail)
 	default:
 		panic(fmt.Sprintf("settle: unhandled gateResult %v", g))
 	}
