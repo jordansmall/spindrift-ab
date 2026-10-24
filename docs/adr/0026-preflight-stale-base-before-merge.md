@@ -1,5 +1,12 @@
 # Preflight a stale base before merging, instead of gating on branch settings
 
+> **Amended (issue #5053):** a force-push on the immediate landing path (a
+> stale-base preflight rebase, or a rebase-retry) whose post-force-push re-wait
+> ends red no longer fails outright. It takes a fix pass from the shared
+> `MAX_FIX_ATTEMPTS` budget, and a head that turns green merges like a first
+> green. The issue ends `Failed` only once that budget is exhausted, the re-wait
+> times out, or a conflict-resolve dispatch or its relay fails.
+
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
