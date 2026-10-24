@@ -3,6 +3,7 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+> See also the [issue #5053 amendment](#amendment-issue-5053-a-red-post-force-push-head-gets-a-fix-pass).
 
 ## Context
 
@@ -128,3 +129,20 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+Under `MERGE_MODE=immediate`, when landing force-pushes a head (clean
+rebase-retry, this preflight's rebase, or a conflict-resolve Box) and the
+post-force-push CI re-wait ends red, the host now dispatches the existing
+red-CI fix pass instead of settling `Failed`. The pass draws from the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI loop, not a fresh allowance,
+and a head it turns green re-enters the merge path exactly as a first-green
+head does, rebase-retry and conflict-resolve budgets included. The issue
+still ends `Failed` with `landing-failed` when the fix budget is exhausted,
+the re-wait times out, or the conflict-resolve dispatch or its outbox relay
+fails.
+The `landing-failed` comment names how many fix passes the force-pushed head
+consumed and how much of the shared budget was used; a fix pass that leaves
+the force-pushed head still red with the budget spent also settles
+`landing-failed`, not fix-exhausted.
