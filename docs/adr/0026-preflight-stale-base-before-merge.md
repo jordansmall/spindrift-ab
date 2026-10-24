@@ -4,6 +4,10 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended (issue #5095):** a force-pushed head whose CI re-wait ends red now
+> earns red-CI fix passes before the issue settles `Failed` — see the
+> amendment at the end.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -128,3 +132,27 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red force-pushed head gets the fix pass
+
+The preflight rebase, like the reactive rebase-retry and an agent
+conflict-resolve Box, force-pushes a head that has not yet been through CI,
+and the landing re-waits on it. Originally a red re-wait settled the issue
+`Failed` (`landing-failed`) on the spot: the force-pushed head never went
+green. That stranded work a fix pass could have recovered — a rebase onto a
+moved base breaking a check is exactly the red-CI case the pre-merge fix loop
+exists for.
+
+A red post-force-push re-wait now dispatches the same red-CI fix pass,
+drawing from the same `MAX_FIX_ATTEMPTS` budget the pre-merge loop spends —
+one allowance per landing, not a fresh one per force-push. A head the fix pass
+turns green re-enters the merge path exactly as a first-green head does,
+merge guard, preflight, and rebase-retry and conflict-resolve budgets
+included. The issue still ends `Failed` with `landing-failed` when the fix
+budget runs out with the head red (the comment names how many fix attempts
+the force-pushed head consumed), when the re-wait times out, or when the
+conflict-resolve dispatch or its outbox relay fails
+(`TestSelfHeal_ForcePushRedFixSucceeds`,
+`TestSelfHeal_ForcePushRedSharesFixBudget`,
+`TestSelfHeal_ForcePushRedExhaustsAfterFix`,
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed`).

@@ -54,6 +54,9 @@ agent conflict-resolve behaviors still run inside `applyMergeMode` for
 after exhausting retries, with a green PR still standing at the pre-rebase
 head) stays `agent-complete` with a merge-blocked note exactly as before —
 only a force-pushed head that never re-confirms green is demoted.
+(Amended by issue #5095: a post-force-push re-wait that ends red now earns
+red-CI fix passes from the shared `MAX_FIX_ATTEMPTS` budget first; only an
+exhausted budget settles it Failed — see ADR 0026.)
 
 The shipped default is **`manual`** — the generic-safe choice for the open-source
 ecosystem, where most repos gate merges on some approval, so an `immediate`
