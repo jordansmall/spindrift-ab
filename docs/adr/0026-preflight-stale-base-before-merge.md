@@ -128,3 +128,34 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (after issue #5053): a red post-force-push head gets a fix pass first
+
+The preflight rebase, the reactive rebase-retry, and an agent conflict-resolve
+Box all force-push a new head, and the launcher re-waits for CI on it. Until
+this amendment, a red re-wait settled the issue `Failed` (`landing-failed`) on
+the spot. #5053 showed the cost: its conflict-resolve head went red on
+`flakemodule-equivalence` and settled `landing-failed` 13 seconds later,
+without the fix pass the same red result would have earned before the merge
+attempt.
+
+A genuinely red re-wait now dispatches the existing red-CI fix pass. It draws
+from the same `MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI loop, shared
+across the whole settle rather than granted fresh per force-push. A head a fix
+pass turns green re-enters the merge path exactly as a first-green head does —
+ready flip, merge guard, tuning hold, then a fresh `immediate` merge attempt
+with fresh preflight, rebase-retry, and conflict-resolve budgets. The issue
+still ends `Failed` with `landing-failed` when the fix budget runs out on a
+force-pushed head (the comment names how many passes ran and how many on that
+head), when the re-wait times out, or when the conflict-resolve dispatch or
+its outbox relay fails; those last two never get a fix pass. A fix pass that
+fails, commits nothing, or trips a budget cap keeps its own existing reason.
+
+The consequence is a longer worst case: because each green-again head brings
+fresh rebase budgets, one settle can enter the merge path up to
+`MAX_FIX_ATTEMPTS + 1` times, which raises the settle-wait ceiling from
+`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows to
+`1 + MAX_FIX_ATTEMPTS + (MAX_FIX_ATTEMPTS + 1) × MAX_REBASE_ATTEMPTS` —
+sixteen at the defaults, twenty with the preflight on (see the signalled-stop
+drain in the reference). The fix-Box count stays bounded by
+`MAX_FIX_ATTEMPTS`.
