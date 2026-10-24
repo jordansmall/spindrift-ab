@@ -149,3 +149,12 @@ correctly recognized.
   global knob and out of scope here; and relabeling a GitHub-`auto`-merged issue
   from `agent-complete` is unnecessary — the merge closes the issue, and no logic
   keys on a post-merge label swap.
+
+## Amendment (issue #5053)
+
+The issue #758 rule above no longer settles a red post-force-push re-wait
+`Failed` on the spot: a head that goes red after a rebase or conflict-resolve
+force-push first gets the red-CI fix pass, and only a spent fix budget ends it
+`Failed`. See the [amendment to ADR 0026](0026-preflight-stale-base-before-merge.md#amendment-issue-5053-a-red-force-pushed-head-gets-a-fix-pass-before-landing-fails).
+The other never-green cases (a re-wait that times out, a failed conflict-resolve
+dispatch or relay) are unchanged.

@@ -128,3 +128,30 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass before landing fails
+
+The preflight's force-push, like the reactive rebase-retry and conflict-resolve
+force-pushes, resets the PR's required checks, so the launcher re-waits for
+green on the new head. Under the issue #758 rule a red re-wait settled the
+issue `Failed` with `landing-failed` on the spot, with no fix pass: issue
+#5053's own landing failed this way, when a conflict-resolve force-push went
+red on a check and the issue settled `landing-failed` 13 seconds later.
+
+A red re-wait now dispatches the same red-CI fix pass a first-red PR gets. It
+draws from the one `MAX_FIX_ATTEMPTS` budget the pre-merge loop uses rather than
+a fresh allowance per force-push, so repeated force-pushes cannot multiply fix
+Boxes. A head the fix pass turns green re-enters the merge path as a fresh
+`mergeImmediate`, so its rebase-retry and conflict-resolve budgets reset. The
+issue still ends `Failed` with `landing-failed` when the fix budget is
+exhausted (the note names the fix attempts the force-pushed head consumed and
+the shared total), when the re-wait times out, or when the conflict-resolve
+dispatch or its outbox relay itself fails; the last two settle with no fix pass.
+
+The regression tests are `TestSelfHeal_RedAfterForcePush_FixPassThenMerges`,
+`TestSelfHeal_RedAfterForcePush_NoFixBudget_EndsLandingFailed`,
+`TestSelfHeal_RedAfterForcePush_SharesFixBudget`, and
+`TestRewaitGateResultErr_ExplicitCases` in `internal/settle/ready_test.go`.
+`TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge` is
+unchanged: its re-wait times out rather than going red, so `mergeImmediate`
+still returns an error and never merges.
