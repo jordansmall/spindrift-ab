@@ -28,6 +28,8 @@ dispatch failure, or a post-force-push re-wait that ends red or times out)
 never re-confirms green, so there is no green PR at the current head — the
 same "never produced a green PR" condition `InProgress→Failed` already covers
 for a box crash or exhausted fix passes, just discovered later, mid-landing.
+(A red re-wait now dispatches a fix pass first; see the ADR 0026
+amendment.)
 Still the same edge, still named inline at its call site — no new edge.
 
 Re-open trigger: a transition added outside the claim or settle paths, or a
