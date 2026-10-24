@@ -783,3 +783,43 @@ func assertRelayFailureParked(t *testing.T, fc *forge.Fake, num string) {
 		}
 	}
 }
+
+// Pins issue #5053: a relay that exhausts its retries after a successful
+// conflict-resolve settles landingFailed with agent-failed and never runs a fix
+// pass, even with fix budget left. Only a red post-force-push re-wait gets one.
+func TestSelfHeal_ConflictResolveRelayExhausted_FailsWithoutFixPass(t *testing.T) {
+	fc := forge.NewFake(testDispatchLabels)
+	c := baseConfig()
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	c.MaxFixAttempts = 2
+	c.Policy = retry.Policy{Max: 1, Unit: time.Second}
+	_, c.Clock = recordingClock()
+	c.OutboxDir = func(num string) string { return "/outbox/" + num }
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.RebaseErr = forge.ErrMergeConflict
+	fc.SetCheckStates(testPR, []forge.RollupState{forge.StateSuccess, forge.StateSuccess})
+	fc.RelayBundleErr = errors.New("ssh auth blip")
+	s := newTestSettle(c, fc, fc.AsGithubReadOnly())
+	gen := s.term.Begin("1")
+	d := dispatch.NewFake()
+
+	var landing landingResult
+	var reason string
+	captureStdout(t, func() { landing, reason = s.selfHeal(d, "1", gen, testPR) })
+
+	if landing != landingFailed {
+		t.Errorf("selfHeal = %v, want landingFailed", landing)
+	}
+	if !strings.Contains(reason, errLandingNeverGreen.Error()) {
+		t.Errorf("reason = %q, want it to contain %q", reason, errLandingNeverGreen.Error())
+	}
+	if len(d.FixCalls) != 0 {
+		t.Errorf("fix passes = %d, want 0 after a relay failure", len(d.FixCalls))
+	}
+	want := forge.TransitionStateCall{Num: "1", From: forge.InProgress, To: forge.Failed}
+	if len(fc.TransitionStateCalls) != 1 || fc.TransitionStateCalls[0] != want {
+		t.Errorf("transitions = %+v, want exactly %+v", fc.TransitionStateCalls, want)
+	}
+}
