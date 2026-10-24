@@ -128,3 +128,43 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red post-force-push head gets the fix pass before the issue fails
+
+The decision above treats a force-pushed head as the landing path's own
+failure: when the post-force-push re-wait (after the stale-base preflight
+rebase, a clean rebase-retry, or an agent-dispatched conflict-resolve Box)
+ends red, times out, or its conflict-resolve dispatch fails, the issue settles
+`Failed` on the spot. Issue #5053 showed the cost: a conflict-resolve
+force-push went red on `flakemodule-equivalence` and the issue failed 13
+seconds later with no fix pass, though the pre-merge red-CI loop would have
+given that same head up to `MAX_FIX_ATTEMPTS` fix passes.
+
+Now a red re-wait dispatches the existing red-CI fix pass instead. That pass
+draws from the same `MAX_FIX_ATTEMPTS` budget the pre-merge loop uses, not a
+fresh allowance per force-push. A head the fix pass turns green re-enters the
+merge path exactly as a first-green head does, so the rebase-retry and
+conflict-resolve budgets start fresh for it. The issue still ends `Failed` with
+`landing-failed` when the fix budget is exhausted; its failure comment reads
+`landing failed: <err> — fix budget exhausted after N fix pass(es), M of them
+on the force-pushed head`. A timed-out re-wait and a conflict-resolve dispatch
+or outbox-relay failure still fail directly, since neither runs a fix pass;
+their comment names the same pass counts.
+
+**A fresh fix allowance per force-push** — rejected: the rebase and
+conflict-resolve passes can each force-push again, so a conflict-resolve or
+rebase loop could then spend an unbounded number of fix passes. Charging every
+fix pass against the one `MAX_FIX_ATTEMPTS` budget per landing caps the whole
+chain.
+
+**Running the fix pass inside the re-wait or `mergeImmediate`** — rejected:
+that code has no access to `selfHealGate`'s attempt counter, so it could not
+share the budget without duplicating it.
+
+The behaviour is pinned by `TestSelfHeal_ForcePushRed_FixPassTurnsGreenMerges`,
+`TestSelfHeal_ForcePushRed_SharesFixBudget`,
+`TestSelfHeal_ForcePushRed_RepeatedRedSpendsBudget`,
+`TestSelfHeal_ForcePushRed_ExhaustedNamesForcePushPasses`,
+`TestSelfHeal_ForcePushNeverGreen_AfterFixPassNamesSpend`, and
+`TestSelfHeal_ForcePushNotRed_NoFixPass` in
+`cmd/launcher/internal/settle/force_push_red_test.go`.
