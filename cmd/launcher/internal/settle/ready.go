@@ -27,6 +27,12 @@ var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns
 // agent-failed instead (issue #758).
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
 
+// errForcePushRed marks a post-force-push re-wait that ended genuinely red
+// rather than timing out or erroring. It is always wrapped together with
+// errLandingNeverGreen, and selfHealGate answers it with a fix pass from the
+// shared MaxFixAttempts budget instead of settling landing-failed on the spot.
+var errForcePushRed = errors.New("CI went red after force-push")
+
 // selfHeal polls the merge gate, dispatching fix boxes on genuine red up to
 // MaxFixAttempts times, then applies the merge mode. It swaps agent-complete
 // only once the landing path settles (issue #757). A merge failure on a
@@ -768,18 +774,23 @@ func (s *Settle) rewaitAfterForcePush(num string, gen uint64, pr string) error {
 // rewaitGateResultErr maps a gateToGreen outcome to rewaitAfterForcePush's
 // return value. gateTerminal and gateRedRetry are named explicitly rather than
 // folded into a catch-all default, so a future gateResult variant panics here
-// instead of silently landing on "never green" (issue #1175).
+// instead of silently landing on "never green" (issue #1175). gateRedRetry
+// additionally wraps errForcePushRed so the caller can tell red from a timeout
+// or CheckState error.
 func rewaitGateResultErr(g gateResult, reason, pr string) error {
 	switch g {
 	case gateGreen:
 		return nil
 	case gateAbandoned:
 		return errAbandoned
-	case gateTerminal, gateRedRetry:
+	case gateTerminal:
 		if reason != "" {
 			return fmt.Errorf("%w: CI did not reach green after force-push on %s (%s)", errLandingNeverGreen, pr, reason)
 		}
 		return fmt.Errorf("%w: CI did not reach green after force-push on %s", errLandingNeverGreen, pr)
+	case gateRedRetry:
+		// gateToGreen never formats a reason for gateRedRetry.
+		return fmt.Errorf("%w: %w on %s", errLandingNeverGreen, errForcePushRed, pr)
 	default:
 		panic(fmt.Sprintf("settle: unhandled gateResult %v", g))
 	}
