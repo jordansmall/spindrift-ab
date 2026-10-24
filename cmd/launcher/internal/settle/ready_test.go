@@ -274,9 +274,10 @@ func TestSelfHeal_ConflictResolveAlreadyRunning_ReportsAbandonedNotFailed(t *tes
 	assertClaimUntouched(t, fc)
 }
 
-// When the post-force-push re-wait ends in genuine red CI or a timeout, the
-// issue ends agent-failed: the force-pushed head never produced a green PR
-// (issue #758).
+// When the post-force-push re-wait times out, or the conflict-resolve dispatch
+// fails, the issue ends agent-failed with no fix pass: the force-pushed head
+// never produced a green PR (issue #758). A red re-wait gets a fix pass
+// instead (rewait_fix_test.go).
 func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -286,17 +287,6 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 		checkStates []forge.RollupState
 	}{
 		{
-			name: "rewait after a plain rebase ends genuine red",
-			// Rebase succeeds outright, so mergeImmediate goes straight to the
-			// post-force-push re-wait without a conflict-resolve.
-			rebaseErr:   nil,
-			pollTimeout: 100,
-			checkStates: []forge.RollupState{
-				forge.StateSuccess, forge.StateSuccess, // initial gateToGreen
-				forge.StateFailure, // rewait's gateToGreen: genuine red
-			},
-		},
-		{
 			name: "rewait after conflict-resolve times out",
 			// Rebase itself conflicts, so mergeImmediate dispatches
 			// conflict-resolve, which succeeds; the re-wait then times out with
@@ -304,6 +294,13 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			rebaseErr:   forge.ErrMergeConflict,
 			resolveErr:  nil,
 			pollTimeout: 0,
+			checkStates: []forge.RollupState{forge.StateSuccess, forge.StateSuccess},
+		},
+		{
+			name:        "conflict-resolve dispatch fails",
+			rebaseErr:   forge.ErrMergeConflict,
+			resolveErr:  errors.New("box exited 1"),
+			pollTimeout: 100,
 			checkStates: []forge.RollupState{forge.StateSuccess, forge.StateSuccess},
 		},
 	}
@@ -338,24 +335,27 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			if containsLabel(iss.Labels, "agent-complete") {
 				t.Errorf("issue must NOT carry agent-complete; labels=%v", iss.Labels)
 			}
+			if len(d.FixCalls) != 0 {
+				t.Errorf("want no fix pass, got %+v", d.FixCalls)
+			}
 		})
 	}
 }
 
-// rewaitAfterForcePush's gateResult-to-error mapping names gateTerminal and
-// gateRedRetry explicitly rather than folding them into a catch-all default
-// (issue #1175).
+// rewaitAfterForcePush's gateResult-to-error mapping names every variant
+// explicitly (issue #1175), and keeps red (fixable) distinct from terminal.
 func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 	cases := []struct {
 		name    string
 		g       gateResult
 		wantErr error
+		notErr  error
 		wantNil bool
 	}{
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
-		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen, notErr: errForcePushedHeadRed},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushedHeadRed, notErr: errLandingNeverGreen},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -370,13 +370,16 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("rewaitGateResultErr(%v) = %v, want wrapping %v", tc.g, err, tc.wantErr)
 			}
+			if tc.notErr != nil && errors.Is(err, tc.notErr) {
+				t.Errorf("rewaitGateResultErr(%v) = %v, must not wrap %v", tc.g, err, tc.notErr)
+			}
 		})
 	}
 }
 
 // A gateResult outside the four known variants panics rather than silently
-// mapping to errLandingNeverGreen, so a new variant must be handled explicitly
-// (issue #1175).
+// mapping to a never-green or red error, so a new variant must be handled
+// explicitly (issue #1175).
 func TestRewaitGateResultErr_UnhandledVariantPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {
