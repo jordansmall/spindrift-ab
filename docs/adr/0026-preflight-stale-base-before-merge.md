@@ -3,6 +3,12 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended by issue #5053:** a red CI result on the force-pushed (rebased or
+> conflict-resolved) head now dispatches the red-CI fix pass off the shared
+> `MAX_FIX_ATTEMPTS` budget before demoting; the issue ends `Failed`
+> (landing-failed) only once that budget is spent. A re-wait timeout and a
+> conflict-resolve dispatch or relay failure still demote with no fix pass.
 
 ## Context
 
