@@ -502,6 +502,51 @@ func TestSelfHeal_ConflictResolveRelayStoppedDuringBackoff_Abandons(t *testing.T
 	assertClaimUntouched(t, fc)
 }
 
+// A conflict-resolve relay that exhausts its retries settles Failed without a
+// fix pass, even with fix budget left: the head was never observed red (issue
+// #5053).
+func TestSelfHeal_ConflictResolveRelayExhausted_EndsFailedWithoutFixPass(t *testing.T) {
+	fc := forge.NewFake(testDispatchLabels)
+	c := baseConfig()
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	c.MaxFixAttempts = 3
+	c.Policy = retry.Policy{Max: 2, Unit: time.Second}
+	_, c.Clock = recordingClock()
+	c.OutboxDir = func(num string) string { return "/outbox/" + num }
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.RebaseErr = forge.ErrMergeConflict
+	fc.SetCheckStates(testPR, []forge.RollupState{forge.StateSuccess, forge.StateSuccess})
+	fc.RelayBundleErr = errors.New("ssh auth blip")
+	s := newTestSettle(c, fc, fc.AsGithubReadOnly())
+	d := dispatch.NewFake()
+
+	var landing landingResult
+	var reason string
+	captureStdout(t, func() { landing, reason = s.selfHeal(d, "1", 0, testPR) })
+
+	if landing != landingFailed {
+		t.Errorf("selfHeal = %v, want landingFailed (conflict-resolve relay exhausted)", landing)
+	}
+	if !strings.Contains(reason, "relay after conflict-resolve failed") {
+		t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, "relay after conflict-resolve failed")
+	}
+	if got := fixPasses(d); len(got) != 0 {
+		t.Errorf("fix passes = %v, want none: a relay failure is not a red CI head", got)
+	}
+	if len(fc.RelayBundleCalls) != 3 {
+		t.Errorf("RelayBundle calls = %d, want Policy.Max+1 = 3", len(fc.RelayBundleCalls))
+	}
+	iss, _ := fc.Issue("1")
+	if !containsLabel(iss.Labels, "agent-failed") {
+		t.Errorf("issue must carry agent-failed after an exhausted conflict-resolve relay; labels=%v", iss.Labels)
+	}
+	if containsLabel(iss.Labels, "agent-complete") {
+		t.Errorf("issue must NOT carry agent-complete after an exhausted conflict-resolve relay; labels=%v", iss.Labels)
+	}
+}
+
 // Pins issue #4649 on the push-only path: the relay runs ahead of the Complete
 // commit, so a stop during its backoff leaves the released issue untouched.
 func TestSelfHeal_LocalForge_RelayStoppedDuringBackoff_AbandonsWithoutComplete(t *testing.T) {
