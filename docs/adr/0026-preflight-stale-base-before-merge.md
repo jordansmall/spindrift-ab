@@ -4,6 +4,9 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended by issue #5053:** a red post-force-push head now gets a fix pass; see
+> [the amendment](#amendment-issue-5053-a-red-post-force-push-head-gets-a-fix-pass).
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -128,3 +131,17 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+Under `immediate` Landing, a head the host force-pushes (the preflight's
+rebase, the reactive rebase-retry, or a conflict-resolve Box) used to settle
+`Failed` with `landing-failed` as soon as the CI re-wait ended red. The host
+now dispatches the existing red-CI fix pass instead. It draws from the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI loop, shared rather than
+fresh per force-push. A head the fix pass turns green re-enters the merge path
+like a first-green head, rebase-retry and conflict-resolve budgets included.
+
+Still `Failed` with `landing-failed`: the fix budget is exhausted (the comment
+names the shared passes used, "N of M shared fix pass(es) used"), the
+re-wait times out, or the conflict-resolve dispatch or its outbox relay fails.
