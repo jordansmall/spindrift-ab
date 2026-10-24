@@ -274,16 +274,19 @@ func TestSelfHeal_ConflictResolveAlreadyRunning_ReportsAbandonedNotFailed(t *tes
 	assertClaimUntouched(t, fc)
 }
 
-// When the post-force-push re-wait ends in genuine red CI or a timeout, the
-// issue ends agent-failed: the force-pushed head never produced a green PR
-// (issue #758).
-func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
+// When the post-force-push re-wait times out, or ends in red CI with no fix
+// budget left, the issue ends agent-failed: the force-pushed head never
+// produced a green PR (issue #758).
+func TestSelfHeal_RewaitAfterForcePush_NoGreenNoFixBudget_EndsFailed(t *testing.T) {
 	cases := []struct {
 		name        string
 		rebaseErr   error
 		resolveErr  error
 		pollTimeout int
 		checkStates []forge.RollupState
+		// wantReason is a substring of the Failed reason. A red re-wait with no
+		// fix budget settles on the budget note, not the never-green sentinel.
+		wantReason string
 	}{
 		{
 			name: "rewait after a plain rebase ends genuine red",
@@ -295,6 +298,7 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 				forge.StateSuccess, forge.StateSuccess, // initial gateToGreen
 				forge.StateFailure, // rewait's gateToGreen: genuine red
 			},
+			wantReason: "fix budget exhausted (0 of 0 fix pass(es) used)",
 		},
 		{
 			name: "rewait after conflict-resolve times out",
@@ -305,6 +309,7 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			resolveErr:  nil,
 			pollTimeout: 0,
 			checkStates: []forge.RollupState{forge.StateSuccess, forge.StateSuccess},
+			wantReason:  errLandingNeverGreen.Error(),
 		},
 	}
 	for _, tc := range cases {
@@ -328,8 +333,8 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			if landing != landingFailed {
 				t.Errorf("selfHeal = %v, want landingFailed (force-pushed head never went green)", landing)
 			}
-			if !strings.Contains(reason, errLandingNeverGreen.Error()) {
-				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, errLandingNeverGreen.Error())
+			if !strings.Contains(reason, tc.wantReason) {
+				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, tc.wantReason)
 			}
 			iss, _ := fc.Issue("1")
 			if !containsLabel(iss.Labels, "agent-failed") {
@@ -355,7 +360,7 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushRed},
 	}
 	for _, tc := range cases {
 		tc := tc
