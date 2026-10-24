@@ -3,6 +3,10 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (issue #5053):** a force-pushed head that goes red on the
+> post-rebase re-wait now gets fix passes instead of demoting at once. See the
+> amendment at the end of this file.
 
 ## Context
 
@@ -128,3 +132,24 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets fix passes
+
+As built, a CI failure on the rebased tree demoted the issue to `Failed` on the
+spot, while a genuine red gate result before the merge gets fix passes first.
+Issue #5053 hit that path on a conflict-resolve force-push that went red on
+`flakemodule-equivalence` and settled `landing-failed` 13 seconds later, with
+no fix pass. A red head after a force-push is the same kind of red the
+pre-merge loop already handles, so `immediate` landing now dispatches the
+existing red-CI fix pass for it. A head that turns green re-enters the merge
+path exactly as a first-green head does, with its own fresh rebase-retry and
+conflict-resolve budgets.
+
+The fix passes draw from the same `MAX_FIX_ATTEMPTS` budget the pre-merge loop
+uses, shared across the whole settle rather than granted afresh per force-push.
+Without that sharing, each rebase or conflict-resolve could multiply the fix
+allowance. The issue still ends `Failed` when the budget is exhausted, when the
+re-wait times out or its check poll errors, or when the conflict-resolve
+dispatch or its outbox relay fails. None of those last cases gets a fix pass: a
+timeout or check error carries no failure for a fix to read, and a failed
+dispatch or relay never put a resolved head on the PR.
