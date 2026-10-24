@@ -3,6 +3,11 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (issue #5053):** a rebased head whose CI re-wait ends red now
+> gets the red-CI fix loop on the shared `MAX_FIX_ATTEMPTS` budget before the
+> issue fails — see [the amendment
+> below](#amendment-issue-5053-a-red-force-pushed-head-gets-the-fix-loop-before-it-fails).
 
 ## Context
 
@@ -128,3 +133,35 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets the fix loop before it fails
+
+Under `MERGE_MODE=immediate`, a head the launcher force-pushes — this
+preflight's rebase, a clean reactive rebase-retry, or an agent
+conflict-resolve Box — whose post-force-push CI re-wait ends genuine red no
+longer settles `Failed` on the spot. The host dispatches the same red-CI fix
+pass the pre-merge gate uses, and a head that pass turns green re-enters the
+merge path exactly as a first-green head does, rebase-retry and
+conflict-resolve budgets included. `mergeImmediate` still returns the error,
+so the combined-break test named above still holds: the stale green result
+never lands.
+
+Issue #5053 motivated it: a conflict-resolve force-push went red on
+`flakemodule-equivalence`, and the issue settled landing-failed 13 seconds
+later with its fix budget unspent. That red came from the combined tree,
+exactly what a fix pass exists for.
+
+The fix pass draws on the one `MAX_FIX_ATTEMPTS` budget the pre-merge red-CI
+loop already spends, not a fresh allowance per force-push: a per-force-push
+allowance would let a rebase loop multiply the fix cap, while sharing keeps
+`MAX_FIX_ATTEMPTS` the single bound on fix passes per landing. When that
+budget runs out on the force-pushed head, the issue still ends `Failed`
+(landing-failed), and the failure comment says how many of the budget's fix
+passes that head used. A re-wait timeout, or a conflict-resolve dispatch or
+outbox relay that itself fails, still ends `Failed` at once: none leaves a
+red result a fix pass can act on.
+
+`TestSelfHeal_RewaitAfterForcePush_Red_FixesThenMerges`,
+`TestSelfHeal_RewaitAfterForcePush_Red_SharesFixBudget`, and
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed` in
+`cmd/launcher/internal/settle/ready_test.go` pin this.

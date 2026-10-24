@@ -24,10 +24,14 @@ typed `from`/`to` inline — no new edge, no conditional edge, no table.
 
 Issue #758 (2026-07-15) added a new reason for the existing `InProgress→Failed`
 edge inside `selfHeal`'s green branch: a force-pushed head (a conflict-resolve
-dispatch failure, or a post-force-push re-wait that ends red or times out)
-never re-confirms green, so there is no green PR at the current head — the
-same "never produced a green PR" condition `InProgress→Failed` already covers
-for a box crash or exhausted fix passes, just discovered later, mid-landing.
+dispatch failure, or a post-force-push re-wait that ends red or times out —
+amended by issue #5053: a red re-wait now first gets red-CI fix passes from
+the shared `MAX_FIX_ATTEMPTS` budget and takes this edge only once that budget
+runs out, while a timeout or a conflict-resolve dispatch or relay failure
+still takes it at once) never re-confirms green, so there is no green PR at
+the current head — the same "never produced a green PR" condition
+`InProgress→Failed` already covers for a box crash or exhausted fix passes,
+just discovered later, mid-landing.
 Still the same edge, still named inline at its call site — no new edge.
 
 Re-open trigger: a transition added outside the claim or settle paths, or a
