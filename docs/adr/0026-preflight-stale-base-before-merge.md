@@ -128,3 +128,35 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push re-wait gets a fix pass
+
+Previously, when `immediate` Landing force-pushed a head — after a clean
+rebase-retry, this ADR's stale-base preflight rebase, or an agent-dispatched
+conflict-resolve Box — and the post-force-push CI re-wait ended red, the
+issue settled `Failed` (`landing-failed`) on the spot. Issue #5053 exposed
+the cost: a conflict-resolve force-push went red on one check and the issue
+settled `landing-failed` 13s later, with no fix pass ever tried.
+
+Now a red re-wait (`errForcePushRed`, wrapping `errLandingNeverGreen`) is
+answered by the existing red-CI fix pass (`fixRedHead`). It draws from the
+same `MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop uses, and numbering
+continues: the budget is shared, not a fresh allowance per force-push,
+because a per-force-push allowance would let a loop of force-pushes buy
+unbounded fix passes. A head the fix pass turns green re-enters the merge
+path exactly as a first-green head does, rebase-retry and conflict-resolve
+budgets included. The issue still ends `Failed` with `landing-failed` when
+the fix budget is spent on that force-pushed head, and at once — no fix
+pass — when the re-wait times out or the conflict-resolve dispatch or its
+outbox relay fails: there is no red head a fix pass could answer, or no CI
+verdict at all. The failure comment reports how many fix passes the
+force-pushed head consumed and how much of the shared budget was used.
+Other stops after a post-push fix pass keep their existing reasons
+(`fix-failed`, `fix-no-op`, `gate-terminal`, `budget-exhausted`).
+
+This refines ADR 0012's issue #758 amendment and ADR 0017's #758 paragraph:
+their "post-force-push re-wait that ends red" now means red with the fix
+budget spent. Pinned by `TestSelfHeal_RewaitAfterForcePush_Red_FixPassThenMerged`,
+`TestSelfHeal_RewaitAfterForcePush_Red_SharesFixBudget`,
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed`, and
+`TestSelfHeal_ConflictResolveRelayFailure_EndsFailedWithoutFix`.
