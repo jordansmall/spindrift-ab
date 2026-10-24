@@ -3,6 +3,14 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (issue #5095):** a red post-force-push CI re-wait no longer
+> settles `Failed`/`landing-failed` on the spot. The host dispatches the
+> existing red-CI fix pass, drawing from the same fix-attempt budget as the
+> pre-merge red-CI loop; a head the fix pass turns green re-enters the merge
+> path like a first-green head. `Failed` remains for an exhausted budget (the
+> comment names the attempts used), a re-wait timeout, and a conflict-resolve
+> dispatch or outbox relay failure.
 
 ## Context
 
