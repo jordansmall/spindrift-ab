@@ -72,10 +72,10 @@ and reports `behind_by > 0`.
 `Merge` attempt. On a hit, the launcher proactively rebases the branch and
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
-before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
-`MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
+before the merge can complete. A CI failure on that rebased tree is handled as
+described in the amendment below (amended by issue #5053); a clean rebase
+proceeds to merge as before. The preflight rebase draws its own attempt budget
+off `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
 exhaust an allowance the real conflict path still needed. `0` still means
@@ -128,3 +128,20 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+Originally a red post-force-push CI re-wait (after a clean rebase-retry, the
+stale-base preflight rebase, or an agent-dispatched conflict-resolve Box)
+settled the issue `Failed` with `landing-failed` and no fix pass: a
+conflict-resolve force-push that went red on CI was simply abandoned, though
+the red-CI fix pass exists for exactly that state.
+
+Now a red re-wait dispatches the existing red-CI fix pass. It draws from the
+same `MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI loop, so a PR cannot
+gain extra attempts by being force-pushed. A head the fix pass turns green
+re-enters the merge path as a first-green head. The issue still ends `Failed`
+with `landing-failed` when the budget is exhausted (the comment names the fix
+passes used; a fixed head that goes red again without a new force-push
+counts), when the re-wait times out, or when the conflict-resolve dispatch
+or outbox relay fails; those get no fix pass.
