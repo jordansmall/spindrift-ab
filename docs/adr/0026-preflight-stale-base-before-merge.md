@@ -3,6 +3,12 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended by issue #5053:** a red post-force-push re-wait after the
+> preflight's rebase now dispatches the red-CI fix pass, drawing from the
+> shared `MAX_FIX_ATTEMPTS` budget, and settles `Failed` only once that budget
+> is exhausted. The "demotes the same way a genuine red gate result always
+> has" line below now means that fix-budget path first.
 
 ## Context
 
