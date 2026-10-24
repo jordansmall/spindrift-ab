@@ -128,3 +128,34 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head draws a fix pass
+
+The original rule — a force-pushed head that never re-confirms green settles
+`Failed` on the spot — was too blunt for a re-wait that ends *genuinely red*.
+Issue #5053 landed a conflict-resolve force-push that went red on
+`flakemodule-equivalence` and settled `landing-failed` 13s later with no fix
+pass, although a fix pass is exactly what a red head needs.
+
+A post-force-push re-wait (after a rebase-retry, the stale-base preflight
+rebase, or an agent-dispatched conflict-resolve Box) that ends red now returns
+`errForcePushRed`, distinct from `errLandingNeverGreen`. `selfHealGate` loops
+back to the existing red-CI fix pass instead of settling `Failed`:
+
+- The fix pass spends the same `MaxFixAttempts` budget as the pre-merge loop;
+  a force-push does not earn a fresh allowance.
+- A head the fix pass turns green re-enters the merge path like a first-green
+  head, with `mergeImmediate`'s rebase-retry and conflict-resolve budgets
+  starting over.
+- With the budget spent, the issue ends `Failed` with `landing-failed`, and the
+  comment names how many fix attempts the force-pushed head consumed.
+- A re-wait *timeout*, a conflict-resolve dispatch failure, and a
+  conflict-resolve outbox relay failure still settle `Failed` with no fix pass
+  (`errLandingNeverGreen`): there is no red result to fix.
+
+Covered by `TestSelfHeal_RewaitRedDrawsFixPass_ThenMerges`,
+`TestSelfHeal_RewaitRedBudgetExhausted_EndsLandingFailed`,
+`TestSelfHeal_RewaitRedAfterFixPass_NamesAttemptsUsed`,
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed` and
+`TestSelfHeal_ConflictResolveFailure_EndsFailed` in
+`internal/settle/ready_test.go`.
