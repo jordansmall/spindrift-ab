@@ -128,3 +128,17 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass first
+
+The CI-failure demotion in the Decision above no longer settles on the spot.
+When a force-push — the preflight rebase, a rebase-retry, or an
+agent-dispatched conflict-resolve Box — leaves the head red after its CI
+re-wait, `selfHealGate` dispatches the same red-CI fix pass the pre-merge loop
+uses, drawing from the same `MAX_FIX_ATTEMPTS` budget rather than a fresh
+allowance per force-push. A head the fix pass turns green re-enters the merge
+path exactly as a first-green head does, with fresh rebase-retry and
+conflict-resolve budgets. The issue still ends `Failed` with `landing-failed`
+when that budget is exhausted (the comment names the fix attempts used), when
+the re-wait times out, or when the conflict-resolve dispatch or its outbox
+relay itself fails; none of these dispatch a further fix pass.

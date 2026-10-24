@@ -6644,7 +6644,10 @@ stale-base preflight enabled. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
+of the polling. A fix pass that turns a force-pushed head green re-enters the
+merge path with fresh rebase and conflict budgets, so a settle that chains
+several such cycles can exceed that count. The floor is the other end of the
+same range: a settle
 that confirms green on its first poll and merges adds only seconds to the
 Box's runtime. The one-shot wave has no refill loop to stop — its batch is
 fixed up front — so there the first signal simply means launch nothing
@@ -8304,7 +8307,8 @@ not the Box runtime alone and not the Box runtime plus a single
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
 windows — seven of them, about seven hours of polling, or eight with the
 stale-base preflight enabled — plus the runtimes of up to three fix Boxes
-and up to three conflict-resolve Boxes, or four with that same preflight;
+and up to three conflict-resolve Boxes, or four with that same preflight (more
+if a fix pass turns a force-pushed head green and the settle chains cycles);
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
 below even the floor, so leaving it at the default means `SIGKILL` lands
