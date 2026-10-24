@@ -43,7 +43,7 @@ func TestPreflightStaleBaseRebasePushBackoff_SucceedsAfterRetries(t *testing.T) 
 	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-complete"}})
 	s := newTestSettle(c, fc, fc)
 
-	err := s.mergeImmediate("1", 0, testPR, nil)
+	err := s.mergeImmediate("1", 0, testPR, nil, nil)
 
 	if err != nil {
 		t.Fatalf("mergeImmediate: unexpected error: %v", err)
@@ -80,7 +80,7 @@ func TestMergeImmediateRebasePushBackoff_ExhaustsWithOriginalError(t *testing.T)
 	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-complete"}})
 	s := newTestSettle(c, fc, fc)
 
-	err := s.mergeImmediate("1", 0, testPR, nil)
+	err := s.mergeImmediate("1", 0, testPR, nil, nil)
 
 	if !errors.Is(err, forge.ErrTransientPushFailure) {
 		t.Fatalf("mergeImmediate: err = %v, want forge.ErrTransientPushFailure", err)
@@ -114,7 +114,7 @@ func TestRebasePushBackoff_NoRetryNoSleep(t *testing.T) {
 	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-complete"}})
 	s := newTestSettle(c, fc, fc)
 
-	err := s.mergeImmediate("1", 0, testPR, nil)
+	err := s.mergeImmediate("1", 0, testPR, nil, nil)
 
 	if err == nil {
 		t.Fatal("mergeImmediate: want error on a non-transient rebase failure, got nil")
@@ -137,7 +137,7 @@ func TestRebasePushBackoff_ZeroMaxRebaseAttemptsNoSleep(t *testing.T) {
 	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-complete"}})
 	s := newTestSettle(c, fc, fc)
 
-	err := s.mergeImmediate("1", 0, testPR, nil)
+	err := s.mergeImmediate("1", 0, testPR, nil, nil)
 
 	if err == nil {
 		t.Fatal("mergeImmediate: want error when MaxRebaseAttempts is 0, got nil")

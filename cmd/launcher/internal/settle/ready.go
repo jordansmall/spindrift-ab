@@ -21,10 +21,12 @@ import (
 // on an issue whose state another actor owns.
 var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns the issue)")
 
-// errLandingNeverGreen marks a force-pushed head that never reached green. A
-// merge failure on an already-green PR leaves the issue agent-complete (ADR
-// 0012); here no green PR exists at the current head, so selfHeal demotes to
-// agent-failed instead (issue #758).
+// errLandingNeverGreen marks a force-pushed head that never reached green: it
+// timed out, failed a conflict-resolve dispatch/relay, or stayed red after the
+// shared fix budget was spent (a red head with budget left gets a fix pass
+// first). A merge failure on an already-green PR leaves the issue
+// agent-complete (ADR 0012); here no green PR exists at the current head, so
+// selfHeal demotes to agent-failed instead (issue #758).
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
 
 // selfHeal polls the merge gate, dispatching fix boxes on genuine red up to
@@ -75,16 +77,8 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 			if err := s.pr.MarkReady(pr); err != nil {
 				fmt.Printf("    #%s  landing=%s  status=mark-ready-failed  !! %v\n", num, pr, err)
 			}
-			matched, guardErr := s.mergeGuardHit(pr)
-			if guardErr != nil {
-				fmt.Printf("    #%s  landing=%s  status=merge-guard-check-error  !! %v\n", num, pr, guardErr)
-				s.it.Comment(num, fmt.Sprintf("merge guard: could not list changed files (%v) — downgrading to manual as a precaution; review and merge by hand", guardErr))
-				return s.completeLanding(num, gen, landingManual, ReasonMergeGuardCheckError), ""
-			}
-			if len(matched) > 0 {
-				fmt.Printf("    #%s  landing=%s  status=merge-guard-hit  paths=%v\n", num, pr, matched)
-				s.it.Comment(num, mergeGuardComment(matched))
-				return s.completeLanding(num, gen, landingManual, ReasonMergeGuardHit), ""
+			if landing, held := s.guardDowngrade(num, gen, pr); held {
+				return landing, ""
 			}
 			held, tuningErr := s.tuningHold(num)
 			if tuningErr != nil {
@@ -97,8 +91,12 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 				s.commentTuningPR(num, pr, tuningHoldComment())
 				return s.completeLanding(num, gen, landingManual, ReasonTuningProvenance), ""
 			}
-			mergeReason, err := s.applyMergeMode(num, gen, pr, d)
+			mergeReason, err := s.applyMergeMode(num, gen, pr, d, &fixAttempts{used: attempt})
 			if err != nil {
+				var fixSettled *fixSettledError
+				if errors.As(err, &fixSettled) {
+					return fixSettled.landing, fixSettled.note
+				}
 				if errors.Is(err, errAbandoned) {
 					return landingAbandoned, ""
 				}
@@ -333,7 +331,7 @@ func (s *Settle) landPushOnly(num string, gen uint64, branch string) landingResu
 	err := relayErr
 	mergeReason := ReasonMergeBlocked
 	if err == nil {
-		mergeReason, err = s.applyMergeMode(num, gen, branch, nil)
+		mergeReason, err = s.applyMergeMode(num, gen, branch, nil, nil)
 	}
 	if errors.Is(err, errAbandoned) {
 		return landingAbandoned
@@ -443,6 +441,24 @@ func (s *Settle) mergeGuardHit(pr string) ([]string, error) {
 	return matchedGuardPaths(s.cfg.MergeGuardPaths, files), nil
 }
 
+// guardDowngrade runs the MERGE_GUARD_PATHS check on pr and, on a hit or a
+// check error, settles num as a manual landing and reports held. Both the
+// gate's green arm and a post-force-push fix pass go through it.
+func (s *Settle) guardDowngrade(num string, gen uint64, pr string) (landingResult, bool) {
+	matched, guardErr := s.mergeGuardHit(pr)
+	if guardErr != nil {
+		fmt.Printf("    #%s  landing=%s  status=merge-guard-check-error  !! %v\n", num, pr, guardErr)
+		s.it.Comment(num, fmt.Sprintf("merge guard: could not list changed files (%v) — downgrading to manual as a precaution; review and merge by hand", guardErr))
+		return s.completeLanding(num, gen, landingManual, ReasonMergeGuardCheckError), true
+	}
+	if len(matched) > 0 {
+		fmt.Printf("    #%s  landing=%s  status=merge-guard-hit  paths=%v\n", num, pr, matched)
+		s.it.Comment(num, mergeGuardComment(matched))
+		return s.completeLanding(num, gen, landingManual, ReasonMergeGuardHit), true
+	}
+	return landingFailed, false
+}
+
 // commentTuningPR posts a tuning-hold comment on the PR, where a reviewer of
 // the held PR will look. A failed post is logged only: the hold stands anyway.
 func (s *Settle) commentTuningPR(num, pr, body string) {
@@ -475,14 +491,16 @@ func (s *Settle) tuningHold(num string) (bool, error) {
 // #3523, #4879) and for the Unclaimed case. A returned merge failure settles
 // Complete with ReasonMergeBlocked (ADR 0012), except errAbandoned, which
 // commits nothing, and selfHealGate's errLandingNeverGreen, which settles
-// Failed. A nil d makes a rebase conflict immediately non-retriable, since
-// nothing can dispatch a conflict resolution. On a nil error the returned
+// Failed, and *fixSettledError (a fix pass or guard downgrade already settled
+// the issue). A nil d makes a rebase conflict immediately non-retriable, since
+// nothing can dispatch a conflict resolution, and runs no fix pass after a
+// force-push; otherwise those draw on fb. On a nil error the returned
 // string is the reason class of the landing, decided here so the mode switch
 // is the only one.
-func (s *Settle) applyMergeMode(num string, gen uint64, pr string, d dispatch.Dispatcher) (string, error) {
+func (s *Settle) applyMergeMode(num string, gen uint64, pr string, d dispatch.Dispatcher, fb *fixAttempts) (string, error) {
 	switch s.cfg.MergeMode {
 	case "immediate":
-		if err := s.mergeImmediate(num, gen, pr, d); err != nil {
+		if err := s.mergeImmediate(num, gen, pr, d, fb); err != nil {
 			return "", err
 		}
 		return ReasonMerged, nil
@@ -517,7 +535,8 @@ func (s *Settle) applyMergeMode(num string, gen uint64, pr string, d dispatch.Di
 // retried directly after a settle wait rather than rebased a second time. The
 // termination check ahead of preflightStaleBase duplicates the loop's own first
 // iteration deliberately, because preflightStaleBase force-pushes (issue #943).
-func (s *Settle) mergeImmediate(num string, gen uint64, pr string, d dispatch.Dispatcher) error {
+// Fix passes may run after a force-push, drawing on fb.
+func (s *Settle) mergeImmediate(num string, gen uint64, pr string, d dispatch.Dispatcher, fb *fixAttempts) error {
 	rebaseAttempts := 0
 	pushRetries := 0
 	checksBlockedAttempts := 0
@@ -528,7 +547,7 @@ func (s *Settle) mergeImmediate(num string, gen uint64, pr string, d dispatch.Di
 	}
 	// preflightStaleBase keeps its own retry budget: sharing rebaseAttempts with
 	// the conflict loop below would let one path exhaust the other's allowance.
-	if err := s.preflightStaleBase(num, gen, pr, d); err != nil {
+	if err := s.preflightStaleBase(num, gen, pr, d, fb); err != nil {
 		return err
 	}
 	// cf is num's own parent-keyed instance when Config.CodeForgeForIssue is set
@@ -607,7 +626,7 @@ func (s *Settle) mergeImmediate(num string, gen uint64, pr string, d dispatch.Di
 				if crErr := s.resolveConflict(num, gen, pr, d); crErr != nil {
 					return crErr
 				}
-				if rwErr := s.rewaitAfterForcePush(num, gen, pr); rwErr != nil {
+				if rwErr := s.rewaitAfterForcePush(num, gen, pr, d, fb); rwErr != nil {
 					return rwErr
 				}
 				skipRebase = true
@@ -619,7 +638,7 @@ func (s *Settle) mergeImmediate(num string, gen uint64, pr string, d dispatch.Di
 		}
 		// The rebase force-push reset the PR's required checks, so the next merge
 		// attempt must wait for the new head to go green.
-		if rwErr := s.rewaitAfterForcePush(num, gen, pr); rwErr != nil {
+		if rwErr := s.rewaitAfterForcePush(num, gen, pr, d, fb); rwErr != nil {
 			return rwErr
 		}
 	}
@@ -639,7 +658,7 @@ func (s *Settle) transientBackoff() retry.LinearBackoff {
 // that landed first. Opt-in via PreflightStaleBase (ADR 0028). A NeedsUpdate
 // error is swallowed, since the caller's Merge surfaces the same problem, but a
 // Rebase failure is hard (issue #940): staleness is confirmed, the fix failed.
-func (s *Settle) preflightStaleBase(num string, gen uint64, pr string, d dispatch.Dispatcher) error {
+func (s *Settle) preflightStaleBase(num string, gen uint64, pr string, d dispatch.Dispatcher, fb *fixAttempts) error {
 	if s.pr == nil || !s.cfg.PreflightStaleBase {
 		return nil
 	}
@@ -679,12 +698,12 @@ func (s *Settle) preflightStaleBase(num string, gen uint64, pr string, d dispatc
 			// (issue #1319), but no skipRebase is needed here: the caller's loop
 			// has not started, so its first Merge runs fresh once
 			// rewaitAfterForcePush confirms the resolved head is green.
-			return s.rewaitAfterForcePush(num, gen, pr)
+			return s.rewaitAfterForcePush(num, gen, pr, d, fb)
 		}
 		fmt.Printf("    #%s  landing=%s  status=stale-base-rebase-failed  !! %v\n", num, pr, rbErr)
 		return rbErr
 	}
-	return s.rewaitAfterForcePush(num, gen, pr)
+	return s.rewaitAfterForcePush(num, gen, pr, d, fb)
 }
 
 // resolveConflict dispatches a Box to resolve a genuine ErrMergeConflict hit by
@@ -760,22 +779,81 @@ func (s *Settle) relayBoxBundle(num string, gen uint64) (ref string, err error) 
 // forge.ErrMergeConflict, so the caller's conflict-retry path is never
 // re-entered for it. A push-only forge has no CI to wait for, so this is a
 // no-op there rather than a crash on s.pr.CheckState (found reviewing #1698).
-func (s *Settle) rewaitAfterForcePush(num string, gen uint64, pr string) error {
+// A red head gets fix passes (from the shared fb budget) when d and fb are set.
+func (s *Settle) rewaitAfterForcePush(num string, gen uint64, pr string, d dispatch.Dispatcher, fb *fixAttempts) error {
 	if s.pr == nil {
 		return nil
 	}
 	fmt.Printf("    #%s  landing=%s  status=post-force-push-wait\n", num, pr)
-	obs, gReason := s.gateToGreen(num, gen, pr, false)
-	if obs.outcome == gateGreen {
-		// Restore ready (issue #1863). MarkReady is idempotent, so calling it
-		// unconditionally beats threading a was-it-ever-demoted flag through
-		// for the stale-base path that never demoted. Best-effort.
-		if mrErr := s.pr.MarkReady(pr); mrErr != nil {
-			fmt.Printf("    #%s  landing=%s  status=mark-ready-failed  !! %v\n", num, pr, mrErr)
-		}
+	start := 0
+	if fb != nil {
+		start = fb.used
 	}
-	return rewaitGateResultErr(obs.outcome, gReason, pr)
+	for {
+		obs, gReason := s.gateToGreen(num, gen, pr, false)
+		if obs.outcome == gateRedRetry && d != nil && fb != nil {
+			if s.terminated(num, gen) {
+				return errAbandoned
+			}
+			if fb.used >= s.cfg.MaxFixAttempts {
+				if s.cfg.MaxFixAttempts == 0 {
+					return fmt.Errorf("%w: CI still red after force-push on %s", errLandingNeverGreen, pr)
+				}
+				return fmt.Errorf("%w: CI still red after force-push on %s (%d fix attempt(s) on this head; %d of %d shared fix attempt(s) used)",
+					errLandingNeverGreen, pr, fb.used-start, fb.used, s.cfg.MaxFixAttempts)
+			}
+			step := s.fixPass(d, num, gen, pr, fb.used)
+			fb.used++
+			if step.stop {
+				if step.landing == landingAbandoned {
+					return errAbandoned
+				}
+				return &fixSettledError{landing: step.landing, note: step.note}
+			}
+			continue
+		}
+		if obs.outcome == gateGreen {
+			// Restore ready (issue #1863). MarkReady is idempotent, so calling it
+			// unconditionally beats threading a was-it-ever-demoted flag through
+			// for the stale-base path that never demoted. Best-effort.
+			if mrErr := s.pr.MarkReady(pr); mrErr != nil {
+				fmt.Printf("    #%s  landing=%s  status=mark-ready-failed  !! %v\n", num, pr, mrErr)
+			}
+			// A fix pass's commits are new to the pre-merge guard check, and
+			// the caller merges straight after a nil return.
+			if fb != nil && fb.used > start {
+				// A mark landing during the gate's confirm sleep must not post
+				// the guard comment on an issue Terminate already released.
+				if s.terminated(num, gen) {
+					return errAbandoned
+				}
+				if landing, held := s.guardDowngrade(num, gen, pr); held {
+					return &fixSettledError{landing: landing}
+				}
+			}
+		}
+		err := rewaitGateResultErr(obs.outcome, gReason, pr)
+		if err != nil && fb != nil && fb.used > start && errors.Is(err, errLandingNeverGreen) {
+			return fmt.Errorf("%w; %d fix attempt(s) on the force-pushed head", err, fb.used-start)
+		}
+		return err
+	}
 }
+
+// fixAttempts is the fix-attempt counter shared between selfHealGate's pre-merge
+// loop (whose attempt seeds it) and post-force-push fix passes, so a
+// force-push never earns a fresh allowance.
+type fixAttempts struct{ used int }
+
+// fixSettledError reports that a post-force-push fix pass or the merge-guard
+// re-check already commented and transitioned the issue, so the caller must
+// not settle it again. note is empty on the guard path.
+type fixSettledError struct {
+	landing landingResult
+	note    string
+}
+
+func (e *fixSettledError) Error() string { return "settle: fix pass settled the landing: " + e.note }
 
 // rewaitGateResultErr maps a gateToGreen outcome to rewaitAfterForcePush's
 // return value. gateTerminal and gateRedRetry are named explicitly rather than
