@@ -4,6 +4,13 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended (after #5053's landing failure):** a rebased head whose CI
+> re-wait ends red no longer demotes on the spot. It gets the red-CI fix
+> pass, drawing on the same `MAX_FIX_ATTEMPTS` budget the pre-merge gate
+> uses, and a head the fix pass turns green re-enters the merge path like a
+> first-green head. Only a spent fix budget, a re-wait timeout, or a failed
+> conflict-resolve dispatch or relay still ends `Failed` (`landing-failed`).
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
