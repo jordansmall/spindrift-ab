@@ -73,8 +73,9 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
+the same way a genuine red gate result always has (amended below, as a
+follow-up to #5053: a red force-pushed head now gets a fix pass first); a
+clean rebase proceeds to merge as before. The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
@@ -128,3 +129,25 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (follow-up to #5053): a red force-pushed head gets a fix pass first
+
+The Decision above says a CI failure on the rebased tree demotes the issue at
+once. That clause is superseded for the red case. A post-force-push CI re-wait
+that ends red now dispatches the ordinary red-CI fix pass instead, drawing on
+the same `MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop uses, so a
+force-push never earns a fresh allowance. A head the fix pass turns green
+re-enters the merge path like a first-green head: it gets fresh
+`MAX_REBASE_ATTEMPTS` rebase-retry and conflict-resolve budgets, and the
+stale-base preflight runs again. The issue ends `Failed` with `landing-failed`
+once the shared fix budget is spent. A `MAX_BUDGET_TOKENS` or `MAX_BUDGET_USD`
+cap that trips first ends it `Failed` as `budget-exhausted` instead, exactly
+as it would before the merge.
+
+A re-wait that times out, and a conflict-resolve dispatch or outbox relay that
+fails, still demote the issue at once without a fix pass.
+
+The behaviour is pinned by `TestSelfHeal_RewaitRedAfterForcePush_FixPassThenMerges`,
+`TestSelfHeal_RewaitRedAfterForcePush_SharesFixBudget`, and
+`TestSelfHeal_ForcePushNeverGreenNoFixPass_EvenWithBudget` in
+`internal/settle/ready_test.go`.
