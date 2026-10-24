@@ -128,3 +128,28 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red rebased head gets a fix pass
+
+The Consequences bullet saying a rebased tree that then fails CI is blocked
+from merging still holds for the merge itself, but the issue no longer settles
+`Failed` on that red. When a force-push (a clean rebase-retry, this
+preflight's rebase, or an agent conflict-resolve Box) is followed by a
+genuinely red CI re-wait, self-heal spends the red-CI fix pass on it, from the
+same `MAX_FIX_ATTEMPTS` counter the pre-merge loop uses, so a force-push never
+earns a fresh allowance. A head the fix pass turns green re-enters the merge
+path with fresh rebase and preflight budgets.
+
+A spent fix budget, a re-wait timeout, or a failed conflict-resolve dispatch
+or relay still settles `landing-failed`; on a spent budget the comment names
+the fix passes used. As with any fix pass, a tripped `MAX_BUDGET_TOKENS` or
+`MAX_BUDGET_USD` cap settles `budget-exhausted` instead of dispatching it.
+The tests are `TestSelfHeal_RewaitRedAfterForcePush_FixPassThenMerged`,
+`TestSelfHeal_RewaitRedAfterForcePush_SharesFixBudget`,
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed`,
+`TestSelfHeal_RewaitRedAfterConflictResolve_FixPassThenMerged`,
+`TestSelfHeal_FixedHeadGetsFreshRebaseBudget`, and
+`TestSelfHeal_ConflictResolveRelayFailure_NoFixPass`, all in
+`internal/settle/ready_test.go`. Because each fix pass re-enters the merge
+path, the worst-case settle wait and Box count multiply instead of adding; the
+ceiling is documented in `docs/reference.md`.
