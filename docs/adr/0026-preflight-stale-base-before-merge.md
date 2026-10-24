@@ -3,6 +3,9 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (issue #5053):** a red CI re-wait on a force-pushed head now gets
+> a fix pass before the issue settles `Failed` — see the amendment at the end.
 
 ## Context
 
@@ -128,3 +131,23 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+Above, a CI failure on the rebased tree demotes the issue "the same way a
+genuine red gate result always has" — but a genuine red gate first gets fix
+passes, and a red re-wait after a force-push got none. #5053's own landing hit
+this: a conflict-resolve force-push went red and settled `landing-failed` 13
+seconds later, with no fix Box dispatched against a likely-fixable failure.
+
+Now, whenever `immediate` Landing force-pushes a head — a clean rebase-retry,
+this preflight's rebase, or a conflict-resolve Box — and the post-force-push
+re-wait ends red, self-heal dispatches the ordinary red-CI fix pass. It draws
+on the same `MAX_FIX_ATTEMPTS` budget the pre-merge loop uses, not a fresh
+allowance per force-push. A head the fix pass turns green re-enters the merge
+path exactly as a first-green head does: merge guard, this preflight, and
+fresh rebase-retry and conflict-resolve budgets.
+
+The issue still ends `Failed` with `landing-failed` when the fix budget is
+spent, when the re-wait times out, or when the conflict-resolve dispatch or
+its outbox relay itself fails; none of those three dispatches a fix pass.
