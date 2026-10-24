@@ -29,6 +29,21 @@ func fixPasses(d *dispatch.Fake) []int {
 	return passes
 }
 
+// forcePushRedSettle wires an immediate-mode Settle whose first merge
+// conflicts, so it force-pushes a rebased head (or, with rebaseErr set, a
+// conflict-resolve Box's) and re-waits on states.
+func forcePushRedSettle(c Config, rebaseErr error, states []forge.RollupState) (*Settle, *forge.Fake) {
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	c.MergePollTimeout = 100
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.RebaseErr = rebaseErr
+	fc.SetCheckStates(testPR, states)
+	return newTestSettle(c, fc, fc), fc
+}
+
 // On genuine red, selfHeal must forward fc.FailureDetail(pr) to Fix as the fix
 // box's CI_FAILURE_SUMMARY (issue #426).
 func TestSelfHeal_ForwardsFailureDetailToFix(t *testing.T) {
@@ -552,5 +567,65 @@ func TestSelfHeal_CleanFixPassRecordsNothing(t *testing.T) {
 
 	if len(d.RecordedWarnings) != 0 {
 		t.Errorf("RecordedWarnings = %q, want none", d.RecordedWarnings)
+	}
+}
+
+// A red re-wait after an immediate force-push draws a fix pass; the head it
+// turns green re-enters the merge path. Both the clean rebase-retry and the
+// conflict-resolve force-push take this path.
+func TestSelfHeal_ForcePushRed_FixPassThenMerges(t *testing.T) {
+	ok, red := forge.StateSuccess, forge.StateFailure
+	for _, tc := range []struct {
+		name      string
+		rebaseErr error
+	}{
+		{name: "clean rebase-retry"},
+		{name: "conflict-resolve", rebaseErr: forge.ErrMergeConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, fc := forcePushRedSettle(fixConfig(2), tc.rebaseErr, []forge.RollupState{ok, ok, red, ok, ok, ok, ok})
+			d := dispatch.NewFake()
+
+			landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+			if landing != landingMerged {
+				t.Fatalf("selfHeal = %v (%q), want landingMerged", landing, reason)
+			}
+			if got := fixPasses(d); !reflect.DeepEqual(got, []int{1}) {
+				t.Errorf("fix passes = %v, want [1]", got)
+			}
+			iss, _ := fc.Issue("1")
+			if !containsLabel(iss.Labels, "agent-complete") {
+				t.Errorf("want agent-complete; labels=%v", iss.Labels)
+			}
+		})
+	}
+}
+
+// The force-push fix pass shares the pre-merge fix budget: one pass spent
+// before the merge leaves none after the force-push.
+func TestSelfHeal_ForcePushRed_SharesFixBudget(t *testing.T) {
+	ok, red := forge.StateSuccess, forge.StateFailure
+	s, fc := forcePushRedSettle(fixConfig(1), nil, []forge.RollupState{red, ok, ok, ok, red})
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Fatalf("selfHeal = %v (%q), want landingFailed", landing, reason)
+	}
+	if len(d.FixCalls) != 1 {
+		t.Errorf("FixCalls = %d, want 1 (shared budget)", len(d.FixCalls))
+	}
+	const used = "1 of 1 shared fix pass(es) used"
+	if !strings.Contains(reason, used) {
+		t.Errorf("reason = %q, want it to name the fix passes used", reason)
+	}
+	iss, _ := fc.Issue("1")
+	if !containsLabel(iss.Labels, "agent-failed") {
+		t.Errorf("want agent-failed; labels=%v", iss.Labels)
+	}
+	if got := fc.CommentCalls; len(got) == 0 || !strings.Contains(got[len(got)-1].Body, used) {
+		t.Errorf("comments = %v, want last to name fix passes used", got)
 	}
 }
