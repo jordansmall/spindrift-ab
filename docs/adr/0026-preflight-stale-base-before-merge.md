@@ -128,3 +128,27 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red post-force-push head gets a fix pass
+
+Originally every force-pushed head that did not re-confirm green — red or
+timed out — settled `Failed` with `landing-failed` on the spot, with no fix
+pass. That discarded a landing a fix pass could often rescue: the rebase (or
+the stale-base preflight, or a conflict-resolve Box) had changed the tree
+CI saw, so a red there is an ordinary red-CI failure, not a landing fault.
+
+The rule is now narrower. Only a re-wait that ends *genuinely red* is healed:
+`selfHealGate` dispatches the existing red-CI fix pass, drawing from the
+same `MAX_FIX_ATTEMPTS` budget as the pre-merge loop — not a fresh allowance
+per force-push. A head the fix turns green re-enters the merge path exactly
+as a first-green head does, including fresh rebase-retry and conflict-resolve
+budgets, since those are per-`mergeImmediate` entry. The issue still ends
+`Failed` with `landing-failed` when the budget is exhausted (the comment
+names how many fix passes the force-pushed head consumed), when the re-wait
+times out, or when the conflict-resolve dispatch or its outbox relay itself
+fails: none of those leave a red CI for a fix pass to act on
+(`TestSelfHeal_RedRewaitAfterForcePush_FixPassThenGreenMerges`,
+`TestSelfHeal_RedRewaitAfterForcePush_BudgetExhaustedEndsLandingFailed`,
+`TestSelfHeal_RedRewaitAfterForcePush_SharesPreMergeFixBudget`,
+`TestSelfHeal_ConflictResolveDispatchFailure_NoFixPass`,
+`TestRewaitGateResultErr_ExplicitCases`).

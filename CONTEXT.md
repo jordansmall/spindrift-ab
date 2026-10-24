@@ -768,9 +768,12 @@ for a human; `auto` is the forge's native auto-merge — meaningful on any
 `PRForge` backend (`github`, `forgejo`). A merge failure after green leaves the
 issue `Complete` with a merge-blocked note — never `Failed` — once that landing
 attempt settles, except when the post-force-push re-wait (after rebase or
-conflict-resolve) ends red or times out, or the conflict-resolve dispatch
-itself fails: there the force-pushed head never went green, so the issue ends
-`Failed` instead.
+conflict-resolve) times out, or the conflict-resolve dispatch or its relay
+itself fails, or the re-wait ends red and the fix passes (drawn from the same
+fix-attempt budget as the pre-merge red-CI loop) run out: there the
+force-pushed head never went green, so the issue ends `Failed` instead. A
+red re-wait with budget left dispatches a fix pass first, and a head it
+turns green re-enters the merge path like a first-green head.
 _Was_: "Label lifecycle" — labels were GitHub's storage mechanism, mistaken for
 the states themselves.
 _Avoid_: status, queue, state machine.
