@@ -128,3 +128,23 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+The Decision settled `Failed` whenever the CI re-wait after a force-push — a
+stale-base preflight rebase, a clean rebase-retry, or a conflict-resolve Box —
+ended red. Issue #5053 showed the cost: a conflict-resolve head went red on
+one check and the issue settled `landing-failed` seconds later, with no fix
+pass ever tried. The host now dispatches the existing red-CI fix pass on such
+a head instead, drawing from the same `MAX_FIX_ATTEMPTS` counter the pre-merge
+loop uses (one shared budget, not a fresh allowance per force-push; the token
+and USD caps still apply). A head the fix pass turns green re-enters the merge
+path exactly as a first-green head does: ready flip, merge guard, then a fresh
+`immediate` merge with its own rebase-retry and conflict-resolve budgets and,
+when on, this preflight again. The issue still ends `Failed` with
+`landing-failed` when the fix budget is already spent, the re-wait times out,
+or the conflict-resolve dispatch or its outbox relay fails; that comment now
+names how many fix attempts were used ("N of M shared fix attempt(s) used").
+A fix pass that spends the last attempt and leaves its own head still red
+settles through the ordinary pre-merge exhaustion instead: `fix-exhausted`,
+not `landing-failed`, and with no "N of M" comment.

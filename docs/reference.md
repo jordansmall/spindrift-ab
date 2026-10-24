@@ -2906,10 +2906,14 @@ ready-for-agent ──dispatch──▶ agent-in-progress ───landing settl
 - **Green is labelled only once the landing path settles; merge is a separate
   policy.** When CI confirms green the launcher applies `MERGE_MODE` first:
   `immediate` rebase-merges the PR (retrying rebase conflicts, dispatching an
-  agent conflict-resolve box, and re-waiting for CI on the new head as needed
-  — the issue stays `agent-in-progress` throughout), then verifies it really is
+  agent conflict-resolve box, and re-waiting for CI on the new head as needed,
+  with a red re-wait sent through a fix pass from the shared
+  `MAX_FIX_ATTEMPTS` budget (a fix pass that spends the last attempt and
+  stays red settles `fix-exhausted`, not `landing-failed`) — the issue
+  stays `agent-in-progress` throughout), then verifies it really is
   merged; `auto` enqueues the forge's native auto-merge (`github` or
-  `forgejo`); `manual` (the default) leaves the green PR open for a human.
+  `forgejo`); `manual` (the default)
+  leaves the green PR open for a human.
   Only once that settles does the merge gate swap `agent-in-progress` →
   `agent-complete` — the agent's work is done. `Closes #N` in the PR body
   closes the issue whenever the PR merges.
@@ -6637,14 +6641,20 @@ enter several: one wait per self-heal attempt, so `MAX_FIX_ATTEMPTS`
 force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
-`PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
-cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
-enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
+`PREFLIGHT_STALE_BASE` is on. Those budgets multiply rather than add: a
+red re-wait on a force-pushed head goes through a fix pass, and a head that
+pass turns green re-enters the merge path with fresh rebase budgets, so
+each of the up to `MAX_FIX_ATTEMPTS + 1` green polls can start its own
+round of re-waits. The ceiling is therefore
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` poll windows: sixteen
+at the defaults, about sixteen hours of polling alone, or
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 2)` = twenty windows with
+the stale-base preflight enabled. Each red gate and each conflict a rebase
+cannot resolve also dispatches its own Box — up to three fix Boxes in all,
+since every fix pass shares the one budget, but up to twelve
+conflict-resolve Boxes, or sixteen with the stale-base preflight enabled,
+which keeps its own retry budget per merge entry — and those runtimes land
+on top of the polling. The floor is the other end of the same range: a settle
 that confirms green on its first poll and merges adds only seconds to the
 Box's runtime. The one-shot wave has no refill loop to stop — its batch is
 fixed up front — so there the first signal simply means launch nothing
