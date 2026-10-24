@@ -4,6 +4,10 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended below:** a red force-pushed head now gets a fix pass from the
+> shared `MAX_FIX_ATTEMPTS` budget instead of settling `Failed` at once; see
+> [the amendment](#amendment-a-red-force-pushed-head-gets-a-fix-pass).
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -128,3 +132,24 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment: a red force-pushed head gets a fix pass
+
+Issue #5053: a conflict-resolve box force-pushed its resolved head, the
+post-force-push re-wait came back red on `flakemodule-equivalence`, and the
+issue settled `landing-failed` about 13 seconds later with no fix pass. The
+decision above treated a red re-wait the same as a timeout, so a head that CI
+had just turned red on never got the repair pass every other red head gets.
+
+A red post-force-push re-wait now dispatches the existing red-CI fix pass,
+drawing from the same `MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop uses.
+The budget is shared across the whole landing rather than granted afresh per
+force-push, and it advances only when a pass actually dispatches. When a fix
+turns the force-pushed head green, that head re-enters the merge path exactly
+like a first-green head: fresh rebase-retry and conflict-resolve budgets, and
+the stale-base preflight runs again. The issue still ends `Failed`
+(`landing-failed`) when the fix budget is exhausted, when the re-wait times
+out, or when the conflict-resolve dispatch or its outbox relay fails, since no
+green PR exists at the current head in any of those cases. A merge failure
+after green is unchanged: it still settles `agent-complete` with a merge-blocked
+note.
