@@ -355,12 +355,20 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushRed},
 	}
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			err := rewaitGateResultErr(tc.g, "", testPR)
+			if tc.g == gateTerminal || tc.g == gateRedRetry {
+				if !errors.Is(err, errLandingNeverGreen) {
+					t.Errorf("rewaitGateResultErr(%v) = %v, want wrapping errLandingNeverGreen", tc.g, err)
+				}
+				if got, want := errors.Is(err, errForcePushRed), tc.g == gateRedRetry; got != want {
+					t.Errorf("rewaitGateResultErr(%v) = %v, errors.Is(errForcePushRed) = %v, want %v", tc.g, err, got, want)
+				}
+			}
 			if tc.wantNil {
 				if err != nil {
 					t.Errorf("rewaitGateResultErr(%v) = %v, want nil", tc.g, err)
