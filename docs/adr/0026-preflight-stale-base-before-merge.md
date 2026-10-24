@@ -128,3 +128,18 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+The re-wait after a preflight rebase, a reactive rebase-retry, or a
+conflict-resolve Box no longer demotes on its first red result. A red re-wait
+enters the self-heal red-CI fix loop and draws on the same `MAX_FIX_ATTEMPTS`
+budget as a pre-merge red; a head the fix pass turns green re-enters the merge
+path like a first-green head. The issue ends `Failed` (`landing-failed`) only
+when that shared budget runs out, and its comment names the fix passes the
+force-pushed head consumed.
+
+A re-wait that times out, a terminal CI-state API error, and a conflict-resolve
+dispatch or outbox-relay failure still demote straight to `Failed`, with no fix
+pass: there is no red result to fix, or the Box that would produce the fix
+never ran.
