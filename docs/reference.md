@@ -3514,9 +3514,11 @@ branch and re-waits for CI to confirm green on the rebased tree** (its own
 attempt budget off `MAX_REBASE_ATTEMPTS`, independent of the reactive
 conflict-retry loop's counters) before merging — so a PR whose rebase no longer
 compiles against a freshly-merged sibling is blocked at that point instead of
-landing on the strength of its stale green result. A query error is logged and
-swallowed rather than blocking the merge; the ordinary `Merge` call surfaces
-any real problem through its already-tested error handling.
+landing on the strength of its stale green result (a red re-wait gets the
+ordinary red-CI fix pass first, from the same `MAX_FIX_ATTEMPTS` budget). A
+query error is logged and swallowed rather than blocking the merge; the
+ordinary `Merge` call surfaces any real problem through its already-tested
+error handling.
 
 This is a launcher-side sanity check, not an adversary-proof gate, and it
 exists on the `github` and `forgejo` Code Forge merge paths for the same reason
@@ -6637,12 +6639,16 @@ enter several: one wait per self-heal attempt, so `MAX_FIX_ATTEMPTS`
 force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
-`PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
+`PREFLIGHT_STALE_BASE` is on. The two budgets multiply rather than add,
+because a fix pass that rescues a red force-pushed head sends it back
+through the merge path with fresh rebase and conflict-resolve budgets.
+The ceiling is therefore
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` poll windows, plus
+one more per merge-path entry with the preflight on: sixteen at the
+defaults, about sixteen hours of polling alone, or twenty windows with the
 stale-base preflight enabled. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
+to twelve conflict-resolve Boxes, or sixteen with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
 of the polling. The floor is the other end of the same range: a settle
 that confirms green on its first poll and merges adds only seconds to the
@@ -8301,10 +8307,11 @@ sends.
 runtime *and that Box's settle*. Size it against the settle's *ceiling*,
 not the Box runtime alone and not the Box runtime plus a single
 `MERGE_POLL_TIMEOUT`. At the defaults that ceiling is
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
-windows — seven of them, about seven hours of polling, or eight with the
-stale-base preflight enabled — plus the runtimes of up to three fix Boxes
-and up to three conflict-resolve Boxes, or four with that same preflight;
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` fresh
+`MERGE_POLL_TIMEOUT` windows — sixteen of them, about sixteen hours of
+polling, or twenty with the stale-base preflight enabled — plus the
+runtimes of up to three fix Boxes and up to twelve conflict-resolve Boxes,
+or sixteen with that same preflight;
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
 below even the floor, so leaving it at the default means `SIGKILL` lands

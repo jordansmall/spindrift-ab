@@ -45,7 +45,10 @@ is reserved strictly for **"never produced a green PR"**: a box crash, CI
 genuinely red past `MAX_FIX_ATTEMPTS`, or — amended by issue #758 — a
 force-pushed head (rebase-retry's own force-push, or an agent conflict-resolve
 box's) that never goes green: the conflict-resolve dispatch itself failing, or
-the post-force-push re-wait ending red or timed out. That is not a merge
+the post-force-push re-wait ending red, timed out or on a CheckState error
+(Amended by issue #5053: a red re-wait now first gets fix passes from the
+shared `MAX_FIX_ATTEMPTS` budget; see the [ADR 0026
+amendment](0026-preflight-stale-base-before-merge.md#amendment-issue-5053-a-red-post-force-push-head-gets-a-fix-pass)). That is not a merge
 failure after green; it is the landing path discovering the current head was
 never green in the first place, so the existing `InProgress→Failed` edge fires
 instead of the settle swap to `agent-complete`. The existing rebase-retry and

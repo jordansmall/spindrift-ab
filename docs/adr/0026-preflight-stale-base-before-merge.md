@@ -128,3 +128,35 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+#5053's landing failed on a head no fix pass ever saw. A conflict-resolve Box
+force-pushed, the re-wait went red on `flakemodule-equivalence`, and the issue
+settled `landing-failed` 13 seconds later. The same red before merge would
+have had a fix pass; after a force-push it had none.
+
+Now, when `immediate` Landing force-pushes a head (this ADR's preflight rebase,
+a clean rebase-retry, or an agent conflict-resolve Box) and the re-wait ends
+genuinely red, the host dispatches the ordinary red-CI fix pass. It draws on
+the same `MAX_FIX_ATTEMPTS` counter as the pre-merge loop, one per settle, so a
+force-push never buys a fresh allowance and the setting still bounds the total
+fix passes a settle can spend. A head the fix pass turns green re-enters the
+merge path like a first-green head, rebase-retry and conflict-resolve budgets
+included. The usual fix-pass stops (`fix-failed`, `fix-no-op`, the token and
+USD caps) apply here too. The issue still ends `Failed` with `landing-failed`
+once the budget is spent, and the comment names the passes used and how many
+came after the latest force-push; with a zero budget it says no fix pass is
+allowed. A re-wait timeout or CheckState error, or a failed conflict-resolve
+dispatch or outbox relay, ends `Failed` at once with no fix pass, as before.
+Because each rescued head starts the merge path over, a settle's worst case
+grows from `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` CI waits to
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)`; the drain and
+`TimeoutStopSec` guidance in `docs/reference.md` carries the new figures.
+Covered by `TestSelfHeal_RewaitAfterForcePush_Red_FixPassThenMerges`,
+`TestSelfHeal_RewaitAfterForcePush_Red_SharesFixBudget`,
+`TestSelfHeal_RewaitAfterForcePush_Red_NoBudget_EndsLandingFailed`,
+`TestSelfHeal_RewaitAfterForcePush_Red_FixStillRed_CountsPostPushPasses`,
+`TestSelfHeal_RewaitAfterForcePush_Red_TwoForcePushes_CountsLatestHead` and
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed` in
+`internal/settle/ready_test.go`.
