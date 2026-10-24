@@ -554,3 +554,71 @@ func TestSelfHeal_CleanFixPassRecordsNothing(t *testing.T) {
 		t.Errorf("RecordedWarnings = %q, want none", d.RecordedWarnings)
 	}
 }
+
+// A red re-wait after a force-push routes into the shared red-CI fix arm, so a
+// fix pass that turns the force-pushed head green re-enters the merge path.
+func TestSelfHeal_ForcePushRedFixThenGreenMerges(t *testing.T) {
+	c := fixConfig(3)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake()
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.RebaseErr = nil
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateSuccess, forge.StateSuccess, // initial gateToGreen
+		forge.StateFailure,                     // rewait after force-push: red
+		forge.StateSuccess, forge.StateSuccess, // after the fix pass
+	})
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingMerged {
+		t.Errorf("selfHeal = %v (reason %q), want landingMerged", landing, reason)
+	}
+	if passes := fixPasses(d); len(passes) != 1 || passes[0] != 1 {
+		t.Errorf("expected exactly fix-pass-1, got %v", passes)
+	}
+}
+
+// The red-CI fix budget is shared between the pre-merge loop and the
+// post-force-push re-wait: once spent, a further red re-wait ends failed and
+// the comment names how many fix passes ran.
+func TestSelfHeal_ForcePushRedSharesFixBudget(t *testing.T) {
+	c := fixConfig(1)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake()
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.RebaseErr = nil
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateFailure, forge.StateSuccess, forge.StateSuccess, // pre-merge red, fixed
+		forge.StateFailure, // rewait after force-push: red, budget spent
+	})
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Errorf("selfHeal = %v, want landingFailed once the shared budget is spent", landing)
+	}
+	if !strings.Contains(reason, errLandingNeverGreen.Error()) {
+		t.Errorf("selfHeal reason = %q, want substring %q", reason, errLandingNeverGreen.Error())
+	}
+	if passes := fixPasses(d); len(passes) != 1 {
+		t.Errorf("expected exactly one fix pass across both loops, got %v", passes)
+	}
+	found := false
+	for _, cc := range fc.CommentCalls {
+		if strings.Contains(cc.Body, "1 fix pass") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a comment naming the spent fix-pass count; comments=%+v", fc.CommentCalls)
+	}
+}
