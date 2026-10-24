@@ -128,3 +128,33 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+Under `MERGE_MODE=immediate`, any force-push (the rebase-retry, this ADR's
+stale-base preflight rebase, or a conflict-resolve Box) is followed by a CI
+re-wait. Until now a re-wait that ended red settled the issue `Failed` /
+`landing-failed` at once, with no fix pass. Issue #5053 hit this: a
+conflict-resolve force-push went red on `flakemodule-equivalence` and the
+issue settled `landing-failed` 13 seconds later, though the pre-merge loop
+would have dispatched a fix pass for the same red.
+
+A genuinely red re-wait now dispatches the existing red-CI fix pass,
+drawing on the same `MAX_FIX_ATTEMPTS` budget as the pre-merge red loop. A
+head the fix pass turns green re-enters the merge path like a first-green
+head, rebase-retry and conflict-resolve included. The issue still settles
+`Failed` / `landing-failed`, with no fix pass, when the re-wait times out or
+the conflict-resolve dispatch or its relay fails. It also settles
+`landing-failed` when the budget runs out while the force-pushed head, or a
+fix pass built on it, is still red, with the comment `landing failed: <err>
+— the force-pushed head is still red after <n> fix pass(es) (<used> of <max>
+shared fix budget used)`, where `<n>` counts only the passes run since that
+force-push.
+
+Proved by `TestSelfHeal_ForcePushRed_DispatchesFixPassThenMerges`,
+`TestSelfHeal_ForcePushRed_AfterPreflightOrResolve_FixPassThenMerges`,
+`TestSelfHeal_ForcePushRed_SharesBudgetAndExhaustsAsLandingFailed`,
+`TestSelfHeal_ForcePushRed_OwnFixPassStaysRedSettlesLandingFailed`,
+`TestSelfHeal_ForcePushRed_MixedPassesCommentSplitsBudget`,
+`TestSelfHeal_ForcePushRed_NoBudgetSettlesFailed`, and
+`TestRewaitGateResultErr_ExplicitCases` in `internal/settle/ready_test.go`.
