@@ -24,8 +24,10 @@ typed `from`/`to` inline — no new edge, no conditional edge, no table.
 
 Issue #758 (2026-07-15) added a new reason for the existing `InProgress→Failed`
 edge inside `selfHeal`'s green branch: a force-pushed head (a conflict-resolve
-dispatch failure, or a post-force-push re-wait that ends red or times out)
-never re-confirms green, so there is no green PR at the current head — the
+dispatch failure, or a post-force-push re-wait that times out, or that ends
+red once the fix budget is spent, see [ADR
+0026](0026-preflight-stale-base-before-merge.md) and issue #5095) never
+re-confirms green, so there is no green PR at the current head — the
 same "never produced a green PR" condition `InProgress→Failed` already covers
 for a box crash or exhausted fix passes, just discovered later, mid-landing.
 Still the same edge, still named inline at its call site — no new edge.

@@ -3,6 +3,11 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (issue #5095):** a red post-force-push re-wait now gets a fix pass
+> from the shared fix budget before the issue settles `landing-failed`; see
+> [the amendment](#amendment-issue-5095-a-red-post-force-push-head-gets-a-fix-pass-before-landing-failed)
+> at the end.
 
 ## Context
 
@@ -128,3 +133,51 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red post-force-push head gets a fix pass before landing-failed
+
+Every force-push the merge path makes — a rebase-retry, this ADR's stale-base
+preflight, or an agent conflict-resolve Box — resets the PR's required checks
+and ends in a CI re-wait. The old rule treated any non-green outcome of that
+re-wait as "the force-pushed head never went green" and settled the issue
+`Failed` with `landing-failed` on the spot. That was too eager for the red
+case: a check that fails on the rebased tree is the same genuine-red signal
+the pre-merge loop answers with a fix pass. #5053 hit exactly that — a
+conflict-resolve force-push went red on `flakemodule-equivalence` and the
+issue settled `landing-failed` 13 seconds later with no fix pass.
+
+A re-wait that reads **red** now re-enters `selfHealGate`'s existing fix loop
+at the current attempt count instead of settling:
+
+- The fix pass draws from the **same** `MAX_FIX_ATTEMPTS` budget as the
+  pre-merge red-CI loop — one counter, not a fresh allowance per force-push, so
+  a run cannot loop rebase, force-push, red, fix indefinitely.
+- A head the fix pass turns green re-enters the merge path exactly as a
+  first-green head does, with fresh rebase-retry and conflict-resolve
+  allowances for that merge attempt (they are per-merge-attempt, not per-run).
+- When the budget is spent, the issue ends `Failed` with `landing-failed`
+  (not `fix-exhausted`), and the comment names how many fix passes were spent
+  on force-pushed heads (counted from the first red one) and how much of the
+  shared budget was used. A fix pass that leaves the force-pushed head red
+  takes the same exit.
+
+What stays as it was: a re-wait that **times out or errors**, a failed
+conflict-resolve dispatch, and a failed conflict-resolve outbox relay still
+settle `Failed` / `landing-failed` with no fix pass. Those leave no red CI to
+repair — either no verdict arrived or the resolved branch never reached the
+forge. A Terminate or Reclaim landing mid-wait still yields `errAbandoned`,
+never a Failed commit or a fix dispatch.
+
+Once a red force-pushed head is in the fix loop, the loop's own exits apply
+with their own reasons rather than `landing-failed`: the `MAX_BUDGET_TOKENS` /
+`MAX_BUDGET_USD` cap settles `budget-exhausted`, a fix pass that exits non-zero
+settles `fix-failed`, and a later gate poll that times out settles
+`gate-terminal`.
+
+The mechanism is a distinct `errRewaitRed` that wraps `errLandingNeverGreen`
+and is returned for `gateRedRetry` only, so a caller that does not route it
+still fails closed. Tests: `TestSelfHeal_RewaitRed_FixPassThenGreenMerges`,
+`TestSelfHeal_RewaitRed_BudgetSpent_EndsLandingFailed`,
+`TestSelfHeal_RewaitRed_FixPassesUntilBudgetSpent`,
+`TestSelfHeal_RewaitRed_FixLeavesHeadRed_EndsLandingFailed`,
+`TestSelfHeal_RewaitUnresolved_NeverFixes`.
