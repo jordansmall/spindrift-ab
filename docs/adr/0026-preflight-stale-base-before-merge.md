@@ -128,3 +128,13 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red re-wait after a force-push is a fix pass
+
+The rule above that a CI failure on the rebased tree demotes the issue is
+superseded for red. When `immediate` force-pushes a head (clean rebase-retry,
+this preflight's rebase, or an agent conflict-resolve box) and the re-wait
+ends red, the host dispatches the red-CI fix pass against the shared
+`MAX_FIX_ATTEMPTS` budget instead of settling `Failed`. Only a re-wait that
+times out, a conflict-resolve dispatch failure, or an outbox relay failure
+still demotes.
