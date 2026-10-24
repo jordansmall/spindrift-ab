@@ -45,15 +45,17 @@ is reserved strictly for **"never produced a green PR"**: a box crash, CI
 genuinely red past `MAX_FIX_ATTEMPTS`, or — amended by issue #758 — a
 force-pushed head (rebase-retry's own force-push, or an agent conflict-resolve
 box's) that never goes green: the conflict-resolve dispatch itself failing, or
-the post-force-push re-wait ending red or timed out. That is not a merge
-failure after green; it is the landing path discovering the current head was
-never green in the first place, so the existing `InProgress→Failed` edge fires
-instead of the settle swap to `agent-complete`. The existing rebase-retry and
-agent conflict-resolve behaviors still run inside `applyMergeMode` for
-`immediate`; an *unresolvable* conflict (rebase or re-merge keeps conflicting
-after exhausting retries, with a green PR still standing at the pre-rebase
-head) stays `agent-complete` with a merge-blocked note exactly as before —
-only a force-pushed head that never re-confirms green is demoted.
+the post-force-push re-wait ending red or timed out (amended by issue #5053: a
+red re-wait first takes a fix pass; see the amendment below). That is not a
+merge failure after green; it is the landing path discovering the current
+head was never green in the first place, so the existing `InProgress→Failed`
+edge fires instead of the settle swap to `agent-complete`. The existing
+rebase-retry and agent conflict-resolve behaviors still run inside
+`applyMergeMode` for `immediate`; an *unresolvable* conflict (rebase or
+re-merge keeps conflicting after exhausting retries, with a green PR still
+standing at the pre-rebase head) stays `agent-complete` with a merge-blocked
+note exactly as before — only a force-pushed head that never re-confirms green
+is demoted.
 
 The shipped default is **`manual`** — the generic-safe choice for the open-source
 ecosystem, where most repos gate merges on some approval, so an `immediate`
@@ -149,3 +151,13 @@ correctly recognized.
   global knob and out of scope here; and relabeling a GitHub-`auto`-merged issue
   from `agent-complete` is unnecessary — the merge closes the issue, and no logic
   keys on a post-merge label swap.
+
+## Amendment (issue #5053): a red re-wait takes a fix pass first
+
+A post-force-push re-wait that ends red no longer demotes at once. The red head
+takes the red-CI fix pass first, drawn from the shared `MAX_FIX_ATTEMPTS`
+budget, and a budget spent with the head still red settles `Failed`; the fix
+pass itself can also end `Failed` as any fix pass does. A timed-out re-wait and
+a conflict-resolve dispatch or relay failure still demote without a fix pass, as
+described above. `agent-failed` therefore still means "never confirmed green",
+but a red head is now given the fix pass before that verdict.

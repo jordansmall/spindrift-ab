@@ -27,8 +27,10 @@ edge inside `selfHeal`'s green branch: a force-pushed head (a conflict-resolve
 dispatch failure, or a post-force-push re-wait that ends red or times out)
 never re-confirms green, so there is no green PR at the current head — the
 same "never produced a green PR" condition `InProgress→Failed` already covers
-for a box crash or exhausted fix passes, just discovered later, mid-landing.
-Still the same edge, still named inline at its call site — no new edge.
+for a box crash or exhausted fix passes, just discovered later, mid-landing
+(amended by issue #5053: a red re-wait now first takes a fix pass, and
+`landing-failed` follows once that budget is spent). Still the same edge, still
+named inline at its call site — no new edge.
 
 Re-open trigger: a transition added outside the claim or settle paths, or a
 conditional edge — one whose legality depends on runtime state rather than

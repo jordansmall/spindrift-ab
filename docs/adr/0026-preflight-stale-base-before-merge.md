@@ -73,13 +73,14 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
-`MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
-conflict-retry loop — the two are independent triggers, and charging one
-against the other's budget would let a stale-base retry (or vice versa)
-exhaust an allowance the real conflict path still needed. `0` still means
-"no rebase behavior at all," so no second knob is needed for an off-switch.
+the same way a genuine red gate result always has (amended by issue #5053: a
+red re-wait takes a fix pass first; see the Amendment below); a clean rebase
+proceeds to merge as before. The preflight rebase draws its own attempt budget
+off `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
+conflict-retry loop — the two are independent triggers, and charging one against
+the other's budget would let a stale-base retry (or vice versa) exhaust an
+allowance the real conflict path still needed. `0` still means "no rebase
+behavior at all," so no second knob is needed for an off-switch.
 
 Explicitly **not** chosen: downgrading a stale-but-green PR to manual (the
 merge-guard's pattern, ADR 0016). Under `MERGE_MODE=immediate`, a PR is
@@ -110,9 +111,10 @@ combined tree) instead of just relocating it to a human.
   there, matching every other PR-only guard in this package.
 - The `#670`/`#672` collision itself is reproduced as a test
   (`TestMergeImmediate_StaleBaseCombinedBreakBlocksMerge` in
-  `internal/settle/merge_test.go`): a `NeedsUpdate`-true PR whose rebased
-  tree then fails CI is blocked from merging, rather than landing on the
-  strength of its stale green result.
+  `internal/settle/merge_test.go`): a `NeedsUpdate`-true PR whose rebased tree
+  then fails CI is blocked from merging (amended by issue #5053: a red head now
+  takes a fix pass first, so it blocks only once that budget is spent), rather
+  than landing on the strength of its stale green result.
 - Two distinct preflight failures are handled differently, and deliberately
   so (issue #940). A `NeedsUpdate` *query* error leaves staleness merely
   unknown, so it is logged and swallowed — the normal `Merge` attempt
@@ -128,3 +130,19 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+The Decision's sentence that a CI failure on the rebased tree "demotes the same
+way a genuine red gate result always has", and the Consequences bullet that a
+rebased tree failing CI is blocked from merging, now hold only once the fix
+budget is spent. A red re-wait after a force-push (the preflight rebase, a
+rebase-retry, or a conflict-resolve) goes to the red-CI fix pass first. That
+pass draws on the same `MAX_FIX_ATTEMPTS` budget the pre-merge loop uses, not a
+fresh allowance per force-push, and only a fix pass that runs spends a slot. A
+head the fix pass turns green re-enters the merge path with fresh rebase and
+conflict-resolve budgets. The issue still ends `Failed` (`landing-failed`) when
+that budget is spent with the head still red, when the re-wait times out, or
+when the conflict-resolve dispatch or its relay fails. The motivating case was
+#5053, whose conflict-resolve force-push went red on
+`flakemodule-equivalence` and settled `landing-failed` with no fix pass.
