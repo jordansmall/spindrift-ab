@@ -6638,7 +6638,7 @@ force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
+`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows (a post-force-push fix pass re-enters the merge path with fresh rebase counters, so this is a nominal ceiling): seven at the
 defaults, about seven hours of polling alone, or eight windows with the
 stale-base preflight enabled. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up

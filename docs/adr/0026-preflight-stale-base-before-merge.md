@@ -4,6 +4,15 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> *Amended by issue #5095:* a post-force-push re-wait that ends red no longer
+> settles `Failed`/`landing-failed` on the spot. This applies to every
+> force-push in the merge path, preflight rebase included. The host dispatches
+> the existing red-CI fix pass, drawing from the same fix-attempt budget as the
+> pre-merge loop, and a head the fix pass turns green re-enters the merge path
+> as a first-green head does. The issue still ends `Failed` when that budget is
+> exhausted (the comment names the fix passes used), when the re-wait times
+> out, or when the conflict-resolve dispatch or its relay fails.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
