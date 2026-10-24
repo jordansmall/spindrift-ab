@@ -2906,7 +2906,8 @@ ready-for-agent ──dispatch──▶ agent-in-progress ───landing settl
 - **Green is labelled only once the landing path settles; merge is a separate
   policy.** When CI confirms green the launcher applies `MERGE_MODE` first:
   `immediate` rebase-merges the PR (retrying rebase conflicts, dispatching an
-  agent conflict-resolve box, and re-waiting for CI on the new head as needed
+  agent conflict-resolve box, and re-waiting for CI on the new head as needed;
+  a red re-wait spends a fix pass from the same `MAX_FIX_ATTEMPTS` budget
   — the issue stays `agent-in-progress` throughout), then verifies it really is
   merged; `auto` enqueues the forge's native auto-merge (`github` or
   `forgejo`); `manual` (the default) leaves the green PR open for a human.

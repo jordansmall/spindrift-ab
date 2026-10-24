@@ -3,6 +3,9 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended by issue #5095:** a red CI re-wait after a force-push now gets a
+> red-CI fix pass before the issue demotes; see the amendment at the end.
 
 ## Context
 
@@ -128,3 +131,24 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red re-wait after a force-push gets a fix pass
+
+The Decision says a CI failure on the rebased tree "demotes the same way a
+genuine red gate result always has". That undersold how a genuine red gate
+result is handled: it earns red-CI fix passes up to `MAX_FIX_ATTEMPTS`, while a
+force-pushed head went straight to `Failed`. Issue #5053 showed the cost: an
+agent conflict-resolve force-push went red on a flake-module equivalence check
+and the issue settled `landing-failed` 13 seconds later with no fix pass.
+
+Now, when `immediate` Landing force-pushes a head (clean rebase-retry,
+stale-base preflight rebase, or conflict-resolve Box) and the re-wait ends red,
+the host dispatches the existing fix pass. It draws from the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge loop, not a fresh allowance per
+force-push, and a head it turns green re-enters the merge path like a
+first-green head. The issue still ends `Failed` (`landing-failed`) when that
+budget is spent, when the re-wait times out or its check errors, or when the
+conflict-resolve dispatch or its outbox relay fails; the last two get no fix
+pass. Only the fix budget is shared: the rebase-retry and conflict-resolve
+allowances live inside each merge attempt, so a head the fix pass turns green
+gets them afresh, as a first-green head does.
