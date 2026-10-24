@@ -94,7 +94,7 @@ func TestMergeImmediate_TerminatedDuringRewaitAfterStaleBasePreflight(t *testing
 	s := newTestSettle(c, tf, tf)
 	tf.reg = s.Registry()
 
-	err := s.mergeImmediate("1", 0, testPR, nil)
+	err := s.mergeImmediate("1", 0, testPR, nil, &forcePushAllowance{})
 
 	if !errors.Is(err, errAbandoned) {
 		t.Errorf("mergeImmediate err = %v, want errAbandoned", err)
@@ -123,7 +123,7 @@ func TestMergeImmediate_TerminatedStopsRebaseRetry(t *testing.T) {
 	reg := s.Registry()
 	reg.Mark("1")
 
-	err := s.mergeImmediate("1", 0, testPR, dispatch.NewFake())
+	err := s.mergeImmediate("1", 0, testPR, dispatch.NewFake(), &forcePushAllowance{})
 
 	if !errors.Is(err, errAbandoned) {
 		t.Errorf("mergeImmediate err = %v, want errAbandoned", err)
@@ -152,7 +152,7 @@ func TestMergeImmediate_TerminatedBeforeStaleBasePreflightSkipsRebase(t *testing
 	reg := s.Registry()
 	reg.Mark("1")
 
-	err := s.mergeImmediate("1", 0, testPR, nil)
+	err := s.mergeImmediate("1", 0, testPR, nil, &forcePushAllowance{})
 
 	if !errors.Is(err, errAbandoned) {
 		t.Errorf("mergeImmediate err = %v, want errAbandoned", err)
@@ -269,7 +269,7 @@ func TestMergeImmediate_TerminatedDuringRewaitAfterPlainRebase(t *testing.T) {
 	s := newTestSettle(c, tf, tf)
 	tf.reg = s.Registry()
 
-	err := s.mergeImmediate("1", 0, testPR, dispatch.NewFake())
+	err := s.mergeImmediate("1", 0, testPR, dispatch.NewFake(), &forcePushAllowance{})
 
 	if !errors.Is(err, errAbandoned) {
 		t.Errorf("mergeImmediate err = %v, want errAbandoned", err)
@@ -312,7 +312,7 @@ func TestMergeImmediate_TerminatedDuringRewaitAfterConflictResolve(t *testing.T)
 	reg := s.Registry()
 	d := terminatingConflictResolver{Fake: dispatch.NewFake(), reg: reg, num: "1"}
 
-	err := s.mergeImmediate("1", 0, testPR, d)
+	err := s.mergeImmediate("1", 0, testPR, d, &forcePushAllowance{})
 
 	if !errors.Is(err, errAbandoned) {
 		t.Errorf("mergeImmediate err = %v, want errAbandoned", err)
@@ -603,7 +603,7 @@ func TestMergeImmediate_ConflictResolveBoxReaped_ReportsAbandonedNotNeverGreen(t
 	reg := s.Registry()
 	d := terminatingConflictResolver{Fake: fk, reg: reg, num: "1"}
 
-	err := s.mergeImmediate("1", 0, testPR, d)
+	err := s.mergeImmediate("1", 0, testPR, d, &forcePushAllowance{})
 
 	if !errors.Is(err, errAbandoned) {
 		t.Errorf("mergeImmediate err = %v, want errAbandoned", err)
@@ -657,7 +657,7 @@ func TestMergeImmediate_ConflictResolveBoxReapedDuringStaleBasePreflight_Reports
 	reg := s.Registry()
 	d := terminatingConflictResolver{Fake: fk, reg: reg, num: "1"}
 
-	err := s.mergeImmediate("1", 0, testPR, d)
+	err := s.mergeImmediate("1", 0, testPR, d, &forcePushAllowance{})
 
 	if !errors.Is(err, errAbandoned) {
 		t.Errorf("mergeImmediate err = %v, want errAbandoned", err)
