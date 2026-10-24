@@ -128,3 +128,19 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red force-pushed head gets a fix pass
+
+Every force-push this ADR describes (the preflight rebase, the rebase-retry,
+and the conflict-resolve Box) is followed by a CI re-wait. Originally a red
+re-wait settled `Failed`/`landing-failed` on the spot, leaving a head that CI
+had merely flagged with no repair attempt. A red re-wait now dispatches the
+existing red-CI fix pass instead, and the pass draws from the same
+`MaxFixAttempts` budget as the pre-merge loop, not a fresh allowance per
+force-push. A head the pass turns green re-enters the merge path like a
+first-green head, rebase-retry and conflict-resolve budgets included.
+
+The issue still ends `Failed` with `landing-failed` when the budget is
+exhausted (the comment names the attempts used), when the re-wait times out,
+or when the conflict-resolve dispatch or its outbox relay fails. Only a
+genuine red (`errForcePushRed`) earns a fix pass.
