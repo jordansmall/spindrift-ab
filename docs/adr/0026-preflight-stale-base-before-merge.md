@@ -128,3 +128,35 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+The original rule, from ADR 0012's #758 amendment, settled any force-pushed
+head that failed to re-confirm green straight to `Failed`: a conflict-resolve
+dispatch that failed, a post-force-push re-wait that timed out, and one that
+came back red alike. A red re-wait got no fix pass, though a red head gets
+exactly that pass before merge. Issue #5053 hit this: a conflict-resolve
+force-push went red on `flakemodule-equivalence`, and the issue settled
+`landing-failed` about 13 seconds later without a single fix pass.
+
+A post-force-push re-wait that ends red now dispatches the ordinary red-CI fix
+pass (`redFixPass`) instead of failing. The fix pass draws from the same
+`MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop uses, not a fresh allowance
+per force-push. A head the fix pass turns green re-enters the merge path exactly
+as a first-green head does, rebase-retry and conflict-resolve budgets included.
+The issue still ends `Failed` with `landing-failed` once the budget is spent
+(the comment reads "force-pushed head still red after N of M fix pass(es)").
+N counts every pass drawn from the shared budget, including any spent before
+the force-push, so it can exceed what the force-pushed head itself consumed.
+The reason class follows where the head went red: red at the post-force-push
+re-wait settles `landing-failed`, but a head a fix pass turned green that then
+goes red at the next gate poll with the budget spent settles `fix-exhausted`,
+as any red gate does.
+
+The budget is shared so that rebase churn cannot multiply the cap. With a fresh
+allowance per force-push, every rebase could buy another round of red fixes
+against the same issue.
+
+A re-wait that times out or hits a `CheckState` error, or a conflict-resolve
+dispatch or outbox relay that fails, is not red CI and spends no fix pass. Those still end `Failed`: there is
+no failing check to hand a fix pass, and the head never went green.
