@@ -6640,10 +6640,15 @@ launcher re-waits for green on the new head — once per
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
 defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
-cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
-enabled, which keeps its own retry budget — and those runtimes land on top
+stale-base preflight enabled. That ceiling assumes every fix pass answers a
+pre-merge red gate: a fix pass spent on a red post-force-push re-wait sends
+its green head back through the merge path with fresh rebase budgets, so each
+such pass can add up to another `MAX_REBASE_ATTEMPTS + 1` windows (the fix
+passes themselves still share the one `MAX_FIX_ATTEMPTS` budget). Each red
+gate and each conflict a rebase cannot resolve also dispatches its own Box
+— up to three fix Boxes and up to three conflict-resolve Boxes, or four
+with the stale-base preflight enabled, which keeps its own retry budget —
+and those runtimes land on top
 of the polling. The floor is the other end of the same range: a settle
 that confirms green on its first poll and merges adds only seconds to the
 Box's runtime. The one-shot wave has no refill loop to stop — its batch is
@@ -8303,7 +8308,11 @@ not the Box runtime alone and not the Box runtime plus a single
 `MERGE_POLL_TIMEOUT`. At the defaults that ceiling is
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
 windows — seven of them, about seven hours of polling, or eight with the
-stale-base preflight enabled — plus the runtimes of up to three fix Boxes
+stale-base preflight enabled — when no fix pass answers a red post-force-push
+re-wait. Each such pass adds up to `MAX_REBASE_ATTEMPTS + 1` more, so the
+absolute worst case is `MAX_FIX_ATTEMPTS × (MAX_REBASE_ATTEMPTS + 2) +
+MAX_REBASE_ATTEMPTS + 1` windows: nineteen at the defaults, twenty with that
+preflight — plus the runtimes of up to three fix Boxes
 and up to three conflict-resolve Boxes, or four with that same preflight;
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far

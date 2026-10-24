@@ -128,3 +128,25 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push re-wait earns a fix pass
+
+Until 2026-10-24, a force-push from the stale-base preflight, a clean
+rebase-retry, or an agent conflict-resolve box whose post-push CI re-wait
+ended red settled `agent-failed` at once (`landing-failed`), with no fix pass.
+Issue #5053 is the motivating case: a conflict-resolve force-push went red and
+was failed without any attempt to fix the break it introduced.
+
+Now a red re-wait after a force-push dispatches the existing red-CI fix pass
+(`runFixPass`) instead. It draws from the same `MAX_FIX_ATTEMPTS` budget as the
+pre-merge red-CI loop, so the counter is shared across the settle rather than
+granted fresh per force-push. A head the fix turns green re-enters the merge
+path like a first-green head, with fresh `immediate` merge, rebase-retry, and
+conflict-resolve budgets. The issue still settles `Failed` with `landing-failed`
+when the fix budget is spent, whether before the force-pushed head's re-wait or
+during its own fix passes (the comment names "N fix pass(es) on the
+force-pushed head; X of M used in total", where N counts only the passes that
+head consumed and X the settle-wide total), when the re-wait times out, or when
+the conflict-resolve dispatch or its outbox relay fails. The red subset is the
+sentinel `errForcePushRed`, a subset of `errLandingNeverGreen`; a timeout has
+no red failure to fix, so it gets no pass.
