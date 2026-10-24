@@ -6644,7 +6644,11 @@ stale-base preflight enabled. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
+of the polling. A force-pushed head that a fix pass turns green re-enters
+the merge path with fresh rebase and conflict-resolve budgets, so these
+figures bound a settle without that re-entry; each re-entry adds the
+rebase windows again, though never more fix passes, since the fix budget
+is shared. The floor is the other end of the same range: a settle
 that confirms green on its first poll and merges adds only seconds to the
 Box's runtime. The one-shot wave has no refill loop to stop — its batch is
 fixed up front — so there the first signal simply means launch nothing
