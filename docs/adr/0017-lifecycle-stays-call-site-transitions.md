@@ -1,5 +1,10 @@
 # The Dispatch lifecycle stays call-site transitions; no lifecycle module
 
+> **Amended (issue #5095):** a post-force-push re-wait that ends red now gets a fix pass
+> from the shared fix budget before the issue settles `agent-failed`; see
+> [ADR 0026](0026-preflight-stale-base-before-merge.md#amendment-issue-5095-a-red-post-force-push-head-gets-a-fix-pass-before-landing-fails).
+> A timed-out re-wait or a failed conflict-resolve still settles `agent-failed` at once.
+
 Issue #139 deferred a `cmd/launcher/internal/lifecycle` module (a transition
 table owning the Dispatch lifecycle's valid edges) pending a deletion-test
 re-run once self-heal (#136) and the retry work had landed. Re-run 2026-07-10:

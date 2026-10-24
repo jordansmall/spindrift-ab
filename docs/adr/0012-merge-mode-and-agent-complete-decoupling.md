@@ -1,5 +1,10 @@
 # `agent-complete` marks agent-done, not merged; merge is a separate `MERGE_MODE`-gated function
 
+> **Amended (issue #5095):** a post-force-push re-wait that ends red now gets a fix pass
+> from the shared fix budget before the issue settles `agent-failed`; see
+> [ADR 0026](0026-preflight-stale-base-before-merge.md#amendment-issue-5095-a-red-post-force-push-head-gets-a-fix-pass-before-landing-fails).
+> A timed-out re-wait or a failed conflict-resolve still settles `agent-failed` at once.
+
 Until now the launcher swapped an issue to `agent-complete` **inside** the
 merge-success path (`mergeWhenGreen` swaps the label only after `fc.Merge`
 returns nil), and immediately force-merged every green PR with `gh pr merge
