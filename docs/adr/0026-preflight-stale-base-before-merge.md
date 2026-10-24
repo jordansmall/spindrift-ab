@@ -73,7 +73,8 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
+the same way a genuine red gate result always has (Amended by issue #5095:
+it draws a fix pass first, see the amendment below); a clean rebase proceeds
 to merge as before. The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
@@ -128,3 +129,25 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red post-force-push head draws a fix pass
+
+Every `immediate` force-push (this preflight rebase, the reactive rebase-retry,
+and a conflict-resolve Box) re-waits on CI. A red result used to settle the
+issue `Failed` with `landing-failed` on the spot, though the head had never had
+a fix attempt. It now dispatches the existing red-CI fix pass, drawing on the
+same `MAX_FIX_ATTEMPTS` budget as the pre-merge loop rather than a fresh
+allowance per force-push. A fix-green head re-enters the merge path exactly
+like a first-green head, with the rebase-retry and conflict-resolve budgets
+reset. The issue still ends `Failed` with `landing-failed` when a force-pushed
+head is still red as the budget runs out, whether the budget was already spent
+at the re-wait or ran out over later fix passes; the comment names how many fix
+passes ran since the first force-push and how many of the total were used. It
+also ends `Failed` when the re-wait times out or when the conflict-resolve
+dispatch or its outbox relay fails; those get no fix pass.
+
+A force-pushed head's fix passes otherwise settle like any other: a fix pass
+that fails or commits nothing ends `fix-failed` or `fix-no-op`, and the token
+or USD budget caps end `budget-exhausted`, each without the force-push pass
+count. The comment's error is the first force-push's verdict, even when a later
+force-push of a fix-green head is the one that ended red.
