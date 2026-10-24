@@ -128,3 +128,39 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass before landing-failed
+
+A conflict-resolve Box's force-push went red on `flakemodule-equivalence`, and
+the issue settled `landing-failed` 13 seconds later with no fix pass (issue
+#5053). The cause was the rule the landing path inherited for a force-pushed
+head: when a clean rebase-retry, a stale-base preflight rebase, or an agent
+conflict-resolve force-pushed a head whose post-force-push CI re-wait then
+ended red, the issue settled `Failed` at once.
+
+That was wrong. A red force-pushed head is the same recoverable state as a
+first-red head: CI failed on code a fix pass can repair. Failing it at once
+discarded fix budget the issue had not spent.
+
+Now, when `immediate` landing force-pushes a head and the post-force-push
+re-wait ends red, the host dispatches the existing red-CI fix pass instead of
+settling `Failed`. That pass draws from the same fix-attempt budget
+(`MAX_FIX_ATTEMPTS`) the pre-merge red-CI loop uses, not a fresh allowance per
+force-push. A head the fix pass turns green re-enters the merge path exactly as
+a first-green head does, and the rebase-retry and conflict-resolve budgets
+reset. The issue still ends `Failed` with `landing-failed` when:
+
+- the shared fix budget is exhausted (the failure comment names the attempts
+  used: "fix budget exhausted (N of M fix pass(es) used)");
+- the re-wait times out or hits a CheckState API error (`errLandingNeverGreen`);
+  or
+- the conflict-resolve dispatch, or its outbox relay, itself fails
+  (`errLandingNeverGreen`). Neither gets a fix pass.
+
+The rule is pinned by `TestSettle_ForcePushRedFixPassThenMerges`,
+`TestSettle_ForcePushRedNoBudgetSettlesLandingFailed`,
+`TestSettle_ForcePushRedSharesFixBudget`,
+`TestSettle_ForcePushRewaitTimeoutNoFixPass`,
+`TestSettle_ConflictResolveDispatchFailureNoFixPass`, and
+`TestSettle_ConflictResolveRelayFailureNoFixPass` in
+`cmd/launcher/internal/settle/merge_gate_test.go`.
