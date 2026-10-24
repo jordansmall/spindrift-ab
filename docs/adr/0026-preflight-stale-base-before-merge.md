@@ -128,3 +128,22 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red re-wait after the force-push gets a fix pass
+
+As written, a CI re-wait that ended red after the preflight's force-push
+settled the issue `Failed` (`landing-failed`) on the spot, with no fix pass.
+A conflict-resolve force-push in #5053 went red and failed 13 seconds
+later. The same rule now governs every force-push in the immediate merge
+path (this preflight, the rebase-retry, and the conflict-resolve Box): a red
+re-wait dispatches the ordinary red-CI fix pass, drawing from the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge loop rather than a fresh allowance
+per force-push, and a head the fix pass turns green re-enters the merge path
+with its own rebase budgets. The issue still ends `Failed` as landing-failed
+when that shared budget is exhausted, when the re-wait times out, or when the
+conflict-resolve dispatch or its relay fails; a fix pass on the force-pushed
+head otherwise ends like any fix pass (e.g. fix-failed or fix-no-op). The
+decision above is otherwise unchanged. One consequence is that the
+poll-window ceiling grows to
+`(MAX_FIX_ATTEMPTS + 1) x (1 + MAX_REBASE_ATTEMPTS + 1)` with the preflight
+on; see [Dispatch exit codes](../reference.md#dispatch-exit-codes).
