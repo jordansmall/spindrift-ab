@@ -73,7 +73,8 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
+the same way a genuine red gate result always has (see the issue #5053
+amendment below); a clean rebase proceeds
 to merge as before. The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
@@ -128,3 +129,30 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+A force-pushed head whose post-force-push CI re-wait ends genuinely red no
+longer settles `Failed` straight away. That covers the preflight stale-base
+rebase, a reactive rebase-retry, and an agent conflict-resolve Box alike.
+`selfHealGate` now dispatches the existing red-CI fix pass for it, charged to
+the same `MAX_FIX_ATTEMPTS` budget the pre-merge red loop uses rather than a
+fresh allowance. A head that the fix pass turns green re-enters the merge path
+like a first-green head. The issue still ends `Failed` (`landing-failed`) when
+that budget runs out on the head, when the re-wait times out, or when the
+conflict-resolve dispatch or its relay fails; a timeout or dispatch failure is
+not a red CI result, so a fix pass would not help.
+
+The Decision's claim that a CI failure on the rebased tree "demotes the same
+way a genuine red gate result always has" did not hold before this amendment:
+a genuine red gate result gets a fix pass first, and the re-wait skipped it.
+It holds as written now. `mergeImmediate` itself still returns the error, so
+`TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge` still
+blocks the merge at that level; the fix pass happens one level up in
+`selfHealGate`. Its tests are every `TestSelfHeal_ForcePushRed_*` test and
+`TestForcePushRedSentinel_WrapsNeverGreen` in
+`cmd/launcher/internal/settle/force_push_red_test.go`. The no-fix-pass exits
+are pinned by `TestSelfHeal_RewaitAfterForcePush_TimedOut_EndsFailed` and
+`TestSelfHeal_ConflictResolveFailure_EndsFailed` (`ready_test.go`) and
+`TestSelfHeal_ConflictResolveRelayExhausted_EndsFailedWithoutFixPass`
+(`relay_retry_test.go`).
