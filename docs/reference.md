@@ -2930,7 +2930,8 @@ ready-for-agent ──dispatch──▶ agent-in-progress ───landing settl
   stays Failed (the gap recovering after red CI already has). On the
   PR-shaped path a missing bundle or a failed draft-PR create still posts
   "merge blocked" and leaves the issue `agent-in-progress`.
-- **Red CI self-heals before it fails.** If CI goes genuinely red, the launcher
+- **Red CI self-heals before it fails.** If CI goes genuinely red (before the
+  merge, or on a head the launcher force-pushed during an `immediate` merge), the launcher
   dispatches up to `MAX_FIX_ATTEMPTS` fix boxes on the same branch and re-gates
   after each. Only once those are exhausted (or a fix box exits non-zero
   after transient retries) does it swap to `agent-failed` and stop. There are
@@ -6638,8 +6639,8 @@ force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
+`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows when no
+force-pushed head goes red: seven at the defaults, about seven hours of polling alone, or eight windows with the
 stale-base preflight enabled. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight

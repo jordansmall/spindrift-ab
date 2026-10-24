@@ -128,3 +128,33 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment: a red force-pushed head gets the fix pass (issue #5095)
+
+A head the launcher force-pushes — the preflight rebase here, a reactive
+rebase-retry, or an agent-dispatched conflict-resolve Box — used to settle
+`Failed` (`landing-failed`) the moment its post-force-push CI re-wait ended
+red, with no fix pass, even though a pre-merge red of the same PR would have
+been fixed. That asymmetry stranded fixable failures: a conflict-resolve
+force-push that broke one check settled `Failed` seconds after the red
+appeared.
+
+The red re-wait now dispatches the existing red-CI fix pass, drawing from the
+**same** `MAX_FIX_ATTEMPTS` counter the pre-merge loop uses, never a fresh
+allowance per force-push. A head the fix pass turns green re-enters the merge
+path as a first-green head does, with fresh rebase-retry and conflict-resolve
+budgets. The issue still ends `Failed` with `landing-failed` when the fix
+budget is exhausted (the comment names the fix passes the head consumed),
+when the re-wait times out or errors, or when the conflict-resolve dispatch
+or its outbox relay fails; none of those dispatch a fix pass. The red signal
+stays distinct from a timeout past `rewaitGateResultErr` as
+`errForcePushedHeadRed`, which wraps `errLandingNeverGreen`, so
+`mergeImmediate` still returns an error on red and `selfHeal` — the only
+caller holding the fix budget — routes it.
+
+Two edges of the shared budget. The count in the failure comment is the
+shared counter, so it includes pre-merge fix passes as well as those spent on
+the force-pushed head. After a force-push red, the token/USD budget cap, a
+fix pass that exits non-zero, and a fix pass that pushes no commit settle as
+`budget-exhausted`, `fix-failed`, and `fix-no-op`, exactly as they do
+pre-merge; only fix-attempt exhaustion settles `landing-failed`.
