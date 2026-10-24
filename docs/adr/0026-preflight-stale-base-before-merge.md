@@ -128,3 +128,34 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+Rebase-retry, the stale-base preflight, and an agent conflict-resolve box all
+force-push the PR head. Until now, a post-force-push CI re-wait that ended red
+settled the issue `Failed` (`landing-failed`) on the spot, with no fix pass.
+Issue #5053 failed this way: a conflict-resolve force-push went red and
+settled `landing-failed` 13 seconds later, before any fix Box had run.
+
+A red re-wait is now treated like any other red gate. The host dispatches the
+existing red-CI fix pass against the force-pushed head, and a head that the fix
+pass turns green re-enters the merge path exactly as a first-green head does,
+rebase-retry and conflict-resolve budgets included. The fix pass draws from the
+same `MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop uses. The budget is
+shared, not granted fresh per force-push: a force-push that could mint its own
+allowance would let rebase, red, fix, and force-push cycle without bound.
+
+The issue still ends `Failed` (`landing-failed`) when the fix budget is
+exhausted, when the re-wait times out or its CheckState call errors, when the
+conflict-resolve dispatch or its outbox relay fails, or when a fix pass fails
+the way it does on the pre-merge path (non-zero exit, no new commit, a token or
+USD budget stop, or a gate timeout after the fix). The exhaustion comment reads
+`fix budget exhausted (N of MAX_FIX_ATTEMPTS=M used; the force-pushed head
+consumed K)`, or `no fix pass allowed (MAX_FIX_ATTEMPTS=0)` when the budget is
+zero.
+
+Tests, all in `cmd/launcher/internal/settle/ready_test.go`:
+`TestSelfHeal_RewaitAfterForcePush_RedFixesAndLands`,
+`TestSelfHeal_ForcePushRed_BudgetExhaustedSharesCount`,
+`TestSelfHeal_ForcePushRed_ZeroBudgetFailsWithCount`, and
+`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed`.
