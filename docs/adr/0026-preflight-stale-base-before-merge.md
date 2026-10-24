@@ -128,3 +128,20 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red force-push re-wait gets the shared fix pass
+
+The preflight rebase, rebase-retry and agent conflict-resolve all force-push
+the head and re-wait CI. A red re-wait used to fail the issue outright, even
+though the head was an ordinary red PR a fix pass could repair. Red now feeds
+the same fix pass the pre-merge red-CI loop uses, drawing on the one shared
+`MAX_FIX_ATTEMPTS` budget rather than a fresh one per force-push. A head a fix
+pass turns green re-enters the merge path like a first-green head, with fresh
+rebase-retry and conflict-resolve budgets.
+
+The terminal cases are unchanged: an exhausted budget, a re-wait timeout, and
+a failed conflict-resolve dispatch or outbox relay each settle `Failed` with
+reason `landing-failed`, and the last two get no fix pass. Pinned by
+`TestSelfHeal_ForcePushedRedFixSucceeds`,
+`TestSelfHeal_ForcePushedRedSharesFixBudget` and
+`TestSelfHeal_ForcePushedRedFixStillRedFails`.

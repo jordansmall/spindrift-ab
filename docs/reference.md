@@ -6637,12 +6637,14 @@ enter several: one wait per self-heal attempt, so `MAX_FIX_ATTEMPTS`
 force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
-`PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
+`PREFLIGHT_STALE_BASE` is on. A fix pass that turns a red force-pushed
+head green re-enters the merge path with fresh rebase budgets, so the
+ceiling is `(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` poll
+windows: sixteen at the defaults, about sixteen hours of polling alone, or
+twenty windows with the stale-base preflight enabled (one more re-wait per
+merge-path run). Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
+to twelve conflict-resolve Boxes, or sixteen with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
 of the polling. The floor is the other end of the same range: a settle
 that confirms green on its first poll and merges adds only seconds to the
@@ -8301,10 +8303,11 @@ sends.
 runtime *and that Box's settle*. Size it against the settle's *ceiling*,
 not the Box runtime alone and not the Box runtime plus a single
 `MERGE_POLL_TIMEOUT`. At the defaults that ceiling is
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
-windows — seven of them, about seven hours of polling, or eight with the
-stale-base preflight enabled — plus the runtimes of up to three fix Boxes
-and up to three conflict-resolve Boxes, or four with that same preflight;
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` fresh
+`MERGE_POLL_TIMEOUT` windows — sixteen of them, about sixteen hours of
+polling, or twenty with the stale-base preflight enabled — plus the
+runtimes of up to three fix Boxes and up to twelve conflict-resolve Boxes,
+or sixteen with that same preflight;
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
 below even the floor, so leaving it at the default means `SIGKILL` lands
