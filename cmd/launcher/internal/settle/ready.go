@@ -24,8 +24,17 @@ var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns
 // errLandingNeverGreen marks a force-pushed head that never reached green. A
 // merge failure on an already-green PR leaves the issue agent-complete (ADR
 // 0012); here no green PR exists at the current head, so selfHeal demotes to
-// agent-failed instead (issue #758).
+// agent-failed instead (issue #758). A force-pushed head that merely ends red is
+// not terminal while fix budget remains: errRewaitRed routes it back through
+// selfHealGate's fix pass, and only an exhausted budget, a re-wait timeout, or a
+// failed conflict-resolve dispatch or relay settles here.
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
+
+// errRewaitRed marks a post-force-push re-wait that ended in genuine red CI. It
+// wraps errLandingNeverGreen so a caller with no fix pass to offer still demotes
+// to Failed; selfHealGate instead re-enters its red-CI loop, drawing the fix
+// pass from the same MaxFixAttempts budget as the pre-merge red.
+var errRewaitRed = fmt.Errorf("%w: CI went red", errLandingNeverGreen)
 
 // selfHeal polls the merge gate, dispatching fix boxes on genuine red up to
 // MaxFixAttempts times, then applies the merge mode. It swaps agent-complete
@@ -46,14 +55,18 @@ func (s *Settle) selfHealAdopted(d dispatch.Dispatcher, num string, gen uint64, 
 }
 
 // selfHealGate is selfHeal and selfHealAdopted's shared implementation.
-// requireRegistration guards only the loop's first attempt, because a fix-pass
+// requireRegistration guards only the loop's first poll, because a fix-pass
 // retry always follows a push d.Fix just made in this process.
 func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr string, requireRegistration bool) (landingResult, string) {
 	if s.pr == nil {
 		return s.landPushOnly(num, gen, pr), ""
 	}
+	// forcePushed latches once a red follows a force-pushed head, so an
+	// exhausted budget settles landing-failed with a note naming that head.
+	forcePushed := false
 	for attempt := 0; ; attempt++ {
-		obs, gateReason := s.gateToGreen(num, gen, pr, requireRegistration && attempt == 0)
+		obs, gateReason := s.gateToGreen(num, gen, pr, requireRegistration)
+		requireRegistration = false
 		// A mark (Terminate or Reclaim) already released num back to
 		// Dispatchable by the time any check below sees it, so no arm past
 		// that point may commit tracker state or dispatch further work for
@@ -102,6 +115,13 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 				if errors.Is(err, errAbandoned) {
 					return landingAbandoned, ""
 				}
+				if errors.Is(err, errRewaitRed) {
+					fmt.Printf("    #%s  landing=%s  status=post-force-push-red  !! %v\n", num, pr, err)
+					// No fix pass ran yet, so the red re-poll must not spend budget.
+					attempt--
+					forcePushed = true
+					continue
+				}
 				if errors.Is(err, errLandingNeverGreen) {
 					fmt.Printf("    #%s  landing=%s  status=landing-failed  !! %v\n", num, pr, err)
 					s.it.Comment(num, fmt.Sprintf("landing failed: %v — no green PR exists at the current head", err))
@@ -140,6 +160,10 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 				exhaustedReason := ReasonCIRed
 				if s.cfg.MaxFixAttempts > 0 {
 					exhaustedReason = ReasonFixExhausted
+				}
+				if forcePushed {
+					reason = fmt.Sprintf("force-pushed head still red after %d fix pass(es)", s.cfg.MaxFixAttempts)
+					exhaustedReason = ReasonLandingFailed
 				}
 				if s.cfg.Unclaimed {
 					// No label records this failure (transitionState is a
@@ -775,7 +799,9 @@ func rewaitGateResultErr(g gateResult, reason, pr string) error {
 		return nil
 	case gateAbandoned:
 		return errAbandoned
-	case gateTerminal, gateRedRetry:
+	case gateRedRetry:
+		return fmt.Errorf("%w on %s after force-push", errRewaitRed, pr)
+	case gateTerminal:
 		if reason != "" {
 			return fmt.Errorf("%w: CI did not reach green after force-push on %s (%s)", errLandingNeverGreen, pr, reason)
 		}

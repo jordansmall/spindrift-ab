@@ -128,3 +128,18 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment: a red post-force-push head gets a fix pass
+
+Originally a head force-pushed by a rebase-retry, this preflight, or a
+conflict-resolve Box that ended red on the post-force-push re-wait settled
+`Failed` (`landing-failed`) on the spot, with no fix pass (#5053 settled 13s
+after going red on `flakemodule-equivalence`). A red re-wait now dispatches the
+existing red-CI fix pass instead, drawing from the same `MaxFixAttempts`
+budget as the pre-merge loop (not a fresh allowance per force-push); a head the
+fix turns green re-enters the merge path like a first-green head. The issue
+still ends `Failed` when the budget is exhausted (the comment names the fix
+passes used), when the re-wait times out, or when the conflict-resolve dispatch
+or its relay fails (`TestSelfHeal_RewaitRed_FixPassThenMerged`,
+`TestSelfHeal_RewaitRed_BudgetExhausted_EndsFailed`,
+`TestSelfHeal_RewaitAfterForcePush_Timeout_EndsFailed`).
