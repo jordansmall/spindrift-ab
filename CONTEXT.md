@@ -740,8 +740,11 @@ a merged/handed-off PR on `github`, a landed branch when the Code Forge is
 push-only/absent, or a posted verdict for a research dispatch) or `Failed`
 (the Box crashed, never reached green past MAX_FIX_ATTEMPTS, or — on `github`
 — a force-pushed head from rebase-retry or an agent conflict-resolve box never
-re-confirmed green; human triage, re-transition to retry). Each Issue Tracker
-adapter maps these states to its native mechanism:
+re-confirmed green: one that ends red first gets the red-CI fix pass, sharing
+the MAX_FIX_ATTEMPTS budget, and fails only once that is spent, the re-wait
+times out, or the conflict-resolve dispatch or relay fails; human triage,
+re-transition to retry). Each Issue Tracker adapter maps these states to its
+native mechanism:
 
 - `github` — labels (`ready-for-agent` → `agent-in-progress` →
   `agent-complete`/`agent-failed`), swapped atomically. This is the original,
@@ -767,10 +770,12 @@ updates a clean checked-out branch); `manual` (default) leaves the branch/PR
 for a human; `auto` is the forge's native auto-merge — meaningful on any
 `PRForge` backend (`github`, `forgejo`). A merge failure after green leaves the
 issue `Complete` with a merge-blocked note — never `Failed` — once that landing
-attempt settles, except when the post-force-push re-wait (after rebase or
-conflict-resolve) ends red or times out, or the conflict-resolve dispatch
-itself fails: there the force-pushed head never went green, so the issue ends
-`Failed` instead.
+attempt settles, except when a post-force-push re-wait (after rebase or
+conflict-resolve) ends red with the shared MAX_FIX_ATTEMPTS budget spent, or
+times out, or the conflict-resolve dispatch or its relay fails: there the
+force-pushed head never went green, so the issue ends `Failed` instead. A
+re-wait that ends red with budget left first gets the red-CI fix pass, and a
+head it turns green re-enters the merge path like a first-green head.
 _Was_: "Label lifecycle" — labels were GitHub's storage mechanism, mistaken for
 the states themselves.
 _Avoid_: status, queue, state machine.

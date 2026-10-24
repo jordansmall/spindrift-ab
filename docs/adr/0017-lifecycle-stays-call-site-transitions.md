@@ -29,6 +29,8 @@ never re-confirms green, so there is no green PR at the current head — the
 same "never produced a green PR" condition `InProgress→Failed` already covers
 for a box crash or exhausted fix passes, just discovered later, mid-landing.
 Still the same edge, still named inline at its call site — no new edge.
+Issue #5053 amends the red case: a red re-wait first gets the shared fix
+pass; see ADR 0026's amendment.
 
 Re-open trigger: a transition added outside the claim or settle paths, or a
 conditional edge — one whose legality depends on runtime state rather than

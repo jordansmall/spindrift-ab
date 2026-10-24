@@ -73,7 +73,8 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
+the same way a genuine red gate result always has (amended below: issue
+#5053 gives that red head a fix pass first); a clean rebase proceeds
 to merge as before. The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
@@ -128,3 +129,22 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+When `immediate` Landing force-pushes a head (the stale-base preflight
+rebase, a clean rebase-retry, or an agent conflict-resolve Box) and the
+post-force-push CI re-wait ends red, the host now dispatches the existing
+red-CI fix pass instead of settling `Failed` on the spot. This amends the
+stale-base preflight's demotion of a red rebased tree above, and the same
+rule for the other force-push paths. The budget is the same `attempt` /
+`MAX_FIX_ATTEMPTS` count as the pre-merge red-CI loop, shared rather than a
+fresh allowance per force-push. A head the fix pass turns green re-enters
+the merge path like a first-green head, with fresh rebase-retry and
+conflict-resolve budgets, `MarkReady`, the merge guard, and the tuning hold.
+
+Still terminal (`Failed`, `landing-failed`): the fix budget is exhausted (the
+failure comment names how many fix passes the force-pushed heads consumed and
+how many of the maximum are used in total), the re-wait times out, or the
+conflict-resolve dispatch or its outbox relay fails; the last two get no fix
+pass.
