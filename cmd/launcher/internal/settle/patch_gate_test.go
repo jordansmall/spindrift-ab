@@ -233,6 +233,45 @@ func TestSettlePatch_ReportsUnderOwnerAndEmitsNoSettled(t *testing.T) {
 	}
 }
 
+// A butler patch whose force-pushed head goes red runs with a nil Dispatcher.
+// The nil Dispatcher is safe only because the Unclaimed clamp forces
+// MaxFixAttempts to 0, so the red head takes the forcePushRed zero-budget exit
+// and never reaches d.Fix (issue #4076). The leading PENDING poll is what lets
+// the adopted first poll's SUCCESS count as registered; without it the initial
+// red read happens before any force-push and the test covers the wrong exit.
+func TestSettlePatch_ForcePushRedNilDispatcherNoFixPass(t *testing.T) {
+	c := baseConfig()
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	c.MaxFixAttempts = 3
+	c.Unclaimed = true
+	c.PreflightStaleBase = true
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: append([]string{}, butlerPatchLabels...)})
+	fc.SetNeedsUpdate(testPR, true)
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StatePending, forge.StateSuccess, forge.StateSuccess, // initial green, registered
+		forge.StateFailure, // post-force-push re-wait: red
+	})
+	s := newTestSettle(c, fc, fc)
+
+	testutil.CaptureStdout(t, func() { s.SettlePatch(dispatchkey.Chore("dead-code"), "1", testPR) })
+
+	if len(fc.RebasedURLs) != 1 {
+		t.Fatalf("expected one force-pushing rebase before the red re-wait; got %d", len(fc.RebasedURLs))
+	}
+	if fc.Merged != "" {
+		t.Errorf("expected no merge on a red force-pushed head; fc.Merged=%q", fc.Merged)
+	}
+	if len(fc.CommentCalls) == 0 {
+		t.Fatal("expected a landing-failed comment")
+	}
+	body := fc.CommentCalls[len(fc.CommentCalls)-1].Body
+	if !strings.Contains(body, "still red with no fix pass allowed") || !strings.Contains(body, "it consumed 0 fix attempt(s)") {
+		t.Errorf("comment = %q, want the force-pushed zero-budget landing-failed message", body)
+	}
+}
+
 // A nil-Dispatcher settle that no Chore owns (no SettlePatch) still reports its
 // terminal record under the issue key: only an owned issue suppresses it.
 func TestSettleAdopted_NilDispatcherUnownedEmitsIssueKeyedSettled(t *testing.T) {
