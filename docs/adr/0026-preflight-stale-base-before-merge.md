@@ -3,6 +3,10 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (issue #5053):** a force-pushed head whose CI re-wait ends red now
+> gets a fix pass instead of settling `Failed` on the spot — see the
+> Amendment at the end.
 
 ## Context
 
@@ -128,3 +132,39 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+Every force-push on the `MERGE_MODE=immediate` landing path — a clean
+rebase-retry, this ADR's stale-base preflight rebase, or an agent-dispatched
+conflict-resolve Box — is followed by a CI re-wait on the new head. Until
+this amendment, a re-wait that ended genuine red settled the issue `Failed`
+with `landing-failed` on the spot, with no fix pass. Issue #5053 is that
+shape: a conflict-resolve force-push went red on `flakemodule-equivalence`
+and settled `landing-failed` 13 seconds later, though the red-CI fix pass
+that handles exactly this failure on a first head never ran.
+
+`selfHealGate` now runs the existing red-CI fix pass on a red force-pushed
+head. It draws from the same `MAX_FIX_ATTEMPTS` budget the pre-merge red-CI
+loop already spent, not a fresh allowance per force-push, so a settle still
+dispatches at most `MAX_FIX_ATTEMPTS` fix Boxes in all. A head the fix pass
+turns green re-enters the merge path exactly as a first-green head does: the
+ready flip, the merge guard, the tuning hold, then a fresh `mergeImmediate`
+with its own rebase-retry and conflict-resolve budgets
+(`TestSelfHeal_ForcePushRed_FixPassThenMerges`,
+`TestSelfHeal_ForcePushRed_BudgetSharedWithPreMergeLoop`).
+
+Some cases stay terminal. The issue still ends `Failed` with
+`landing-failed` when the fix budget runs out on the red force-pushed head —
+the failure comment names how many fix passes that head consumed and the
+budget size (`TestSelfHeal_ForcePushRed_FixPassesStayRed`) — when the
+re-wait times out
+(`TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed`), or when the
+conflict-resolve dispatch or its outbox relay fails; those last two run no
+fix pass. Any other fix-pass stop (the fix exits non-zero, a no-op fix, a
+token or USD budget cap) settles as it does pre-merge.
+
+`TestMergeImmediate_StaleBaseCombinedBreakBlocksMerge` still holds at the
+`mergeImmediate` level: a rebased head that re-waits red never merges. What
+changed is the caller — `selfHeal` now fixes that head rather than settling
+the issue on it.
