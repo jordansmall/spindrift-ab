@@ -81,6 +81,13 @@ against the other's budget would let a stale-base retry (or vice versa)
 exhaust an allowance the real conflict path still needed. `0` still means
 "no rebase behavior at all," so no second knob is needed for an off-switch.
 
+*Amended by issue #5095:* under `immediate` a red re-wait on that rebased tree
+no longer settles `Failed` at once. The host dispatches the red-CI fix pass
+from the same `MAX_FIX_ATTEMPTS` budget the pre-merge loop uses, and a head
+that pass turns green re-enters the merge path. The issue settles `Failed`
+only when that budget is exhausted, the re-wait times out, or the
+conflict-resolve dispatch or its relay fails.
+
 Explicitly **not** chosen: downgrading a stale-but-green PR to manual (the
 merge-guard's pattern, ADR 0016). Under `MERGE_MODE=immediate`, a PR is
 almost always behind main by the time it's ready to land — anything merging
