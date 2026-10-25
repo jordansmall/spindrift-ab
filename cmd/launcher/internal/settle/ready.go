@@ -24,14 +24,21 @@ var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns
 // errLandingNeverGreen marks a force-pushed head that never reached green. A
 // merge failure on an already-green PR leaves the issue agent-complete (ADR
 // 0012); here no green PR exists at the current head, so selfHeal demotes to
-// agent-failed instead (issue #758).
+// agent-failed instead (issue #758). Genuine red arrives as errForcePushedRed
+// and gets fix passes first (issue #5053).
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
+
+// errForcePushedRed is the fixable never-green case: the re-wait saw genuine
+// red, so selfHealGate spends its shared fix budget on the head before
+// settling Failed (issue #5053).
+var errForcePushedRed = fmt.Errorf("%w: CI went red", errLandingNeverGreen)
 
 // selfHeal polls the merge gate, dispatching fix boxes on genuine red up to
 // MaxFixAttempts times, then applies the merge mode. It swaps agent-complete
 // only once the landing path settles (issue #757). A merge failure on a
 // still-green PR stays agent-complete (ADR 0012), but a force-pushed head that
-// never re-confirms green demotes to agent-failed instead (issue #758).
+// never re-confirms green, even after fix passes from the same budget, demotes
+// to agent-failed instead (issues #758, #5053).
 func (s *Settle) selfHeal(d dispatch.Dispatcher, num string, gen uint64, pr string) (landingResult, string) {
 	return s.selfHealGate(d, num, gen, pr, false)
 }
@@ -52,6 +59,7 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 	if s.pr == nil {
 		return s.landPushOnly(num, gen, pr), ""
 	}
+	var red *forcePushedRed
 	for attempt := 0; ; attempt++ {
 		obs, gateReason := s.gateToGreen(num, gen, pr, requireRegistration && attempt == 0)
 		// A mark (Terminate or Reclaim) already released num back to
@@ -102,11 +110,19 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 				if errors.Is(err, errAbandoned) {
 					return landingAbandoned, ""
 				}
+				if errors.Is(err, errForcePushedRed) {
+					// The for-loop's attempt++ counts this fix pass against the
+					// same budget the pre-merge red loop draws from.
+					fmt.Printf("    #%s  landing=%s  status=post-force-push-red  !! %v\n", num, pr, err)
+					red = &forcePushedRed{err: err, since: attempt}
+					if stopped := s.fixRedCI(d, num, gen, pr, attempt, red); stopped.stop {
+						return stopped.landing, stopped.note
+					}
+					continue
+				}
 				if errors.Is(err, errLandingNeverGreen) {
-					fmt.Printf("    #%s  landing=%s  status=landing-failed  !! %v\n", num, pr, err)
-					s.it.Comment(num, fmt.Sprintf("landing failed: %v — no green PR exists at the current head", err))
-					s.transitionState(num, forge.InProgress, forge.Failed, err.Error(), ReasonLandingFailed)
-					return landingFailed, err.Error()
+					stopped := s.failNeverGreen(num, pr, err.Error())
+					return stopped.landing, stopped.note
 				}
 				fmt.Printf("    #%s  landing=%s  status=merge-blocked  !! %v\n", num, pr, err)
 				s.it.Comment(num, fmt.Sprintf("merge blocked after green CI: %v", err))
@@ -124,7 +140,7 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 			s.transitionState(num, forge.InProgress, forge.Failed, gateReason, ReasonGateTerminal)
 			return landingFailed, gateReason
 		case gateRedRetry:
-			if stopped := s.fixRedCI(d, num, gen, pr, attempt); stopped.stop {
+			if stopped := s.fixRedCI(d, num, gen, pr, attempt, red); stopped.stop {
 				return stopped.landing, stopped.note
 			}
 		}
@@ -138,16 +154,28 @@ type fixStop struct {
 	stop    bool
 }
 
+// forcePushedRed is the post-force-push red selfHealGate is fixing: err is the
+// re-wait's errForcePushedRed and since the fix passes already spent when the
+// head went red, so exhaustion can name what the force-pushed head consumed.
+type forcePushedRed struct {
+	err   error
+	since int
+}
+
 // fixRedCI handles a genuine red at the current head: it dispatches fix pass
 // attempt+1, or settles Failed once the MaxFixAttempts or token/USD budget is
-// spent.
-func (s *Settle) fixRedCI(d dispatch.Dispatcher, num string, gen uint64, pr string, attempt int) fixStop {
+// spent. red is non-nil while the head is a force-pushed one that went red, so
+// exhaustion settles landing-failed instead (issue #5053).
+func (s *Settle) fixRedCI(d dispatch.Dispatcher, num string, gen uint64, pr string, attempt int, red *forcePushedRed) fixStop {
 	// Catches a mark landing mid-poll, before the fix-exhausted and
 	// budget-exhausted Failed commits below.
 	if s.terminated(num, gen) {
 		return fixStop{landing: landingAbandoned, stop: true}
 	}
 	if attempt >= s.cfg.MaxFixAttempts {
+		if red != nil {
+			return s.forcePushedRedExhausted(num, pr, attempt, red)
+		}
 		if s.cfg.MaxFixAttempts > 0 {
 			fmt.Printf("    #%s  landing=%s  status=fix-exhausted  !! exhausted %d fix pass(es)\n",
 				num, pr, s.cfg.MaxFixAttempts)
@@ -263,6 +291,26 @@ func (s *Settle) fixRedCI(d dispatch.Dispatcher, num string, gen uint64, pr stri
 		}
 	}
 	return fixStop{}
+}
+
+// forcePushedRedExhausted settles a force-pushed head still red once the shared
+// fix budget is spent. With no budget at all the comment stays the pre-#5053
+// one, since there is no pass count worth naming.
+func (s *Settle) forcePushedRedExhausted(num, pr string, attempt int, red *forcePushedRed) fixStop {
+	note := red.err.Error()
+	if s.cfg.MaxFixAttempts > 0 {
+		note = fmt.Sprintf("%s after %d fix pass(es) on the force-pushed head (%d of %d fix pass(es) used)",
+			note, attempt-red.since, attempt, s.cfg.MaxFixAttempts)
+	}
+	return s.failNeverGreen(num, pr, note)
+}
+
+// failNeverGreen settles num Failed because no green PR exists at its head.
+func (s *Settle) failNeverGreen(num, pr, note string) fixStop {
+	fmt.Printf("    #%s  landing=%s  status=landing-failed  !! %s\n", num, pr, note)
+	s.it.Comment(num, fmt.Sprintf("landing failed: %s — no green PR exists at the current head", note))
+	s.transitionState(num, forge.InProgress, forge.Failed, note, ReasonLandingFailed)
+	return fixStop{landing: landingFailed, note: note, stop: true}
 }
 
 // completeLanding is the single Complete-commit gate for the gateGreen arm and
@@ -780,14 +828,20 @@ func (s *Settle) rewaitAfterForcePush(num string, gen uint64, pr string) error {
 // rewaitGateResultErr maps a gateToGreen outcome to rewaitAfterForcePush's
 // return value. gateTerminal and gateRedRetry are named explicitly rather than
 // folded into a catch-all default, so a future gateResult variant panics here
-// instead of silently landing on "never green" (issue #1175).
+// instead of silently landing on "never green" (issue #1175). Only red maps to
+// the fixable errForcePushedRed; a timeout has no failure for a fix pass to fix.
 func rewaitGateResultErr(g gateResult, reason, pr string) error {
 	switch g {
 	case gateGreen:
 		return nil
 	case gateAbandoned:
 		return errAbandoned
-	case gateTerminal, gateRedRetry:
+	case gateRedRetry:
+		if reason != "" {
+			return fmt.Errorf("%w after force-push on %s (%s)", errForcePushedRed, pr, reason)
+		}
+		return fmt.Errorf("%w after force-push on %s", errForcePushedRed, pr)
+	case gateTerminal:
 		if reason != "" {
 			return fmt.Errorf("%w: CI did not reach green after force-push on %s (%s)", errLandingNeverGreen, pr, reason)
 		}
