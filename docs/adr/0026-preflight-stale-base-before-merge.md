@@ -73,9 +73,10 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
-`MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
+the same way a genuine red gate result always has (amended by issue #5053: it
+first draws a fix pass, see the Amendment section below); a clean rebase
+proceeds to merge as before. The preflight rebase draws its own attempt budget
+off `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
 exhaust an allowance the real conflict path still needed. `0` still means
@@ -128,3 +129,19 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): fix a red force-pushed head before settling
+
+A CI failure on a force-pushed head no longer settles `landing-failed` on the
+spot. This covers the preflight rebase, the reactive rebase-retry, and an agent
+conflict-resolve Box alike. While `MAX_FIX_ATTEMPTS` budget remains, the host
+dispatches the same red-CI fix pass the pre-merge loop uses, drawing on that
+same budget (a force-push earns no fresh allowance), and a head the pass turns
+green re-enters the merge path from scratch, rebase-retry and conflict-resolve
+budgets included. The issue still ends `Failed` with `landing-failed` when the
+budget is spent, when the re-wait times out, or when the conflict-resolve
+dispatch or its outbox relay fails; the failure comment says how many fix
+attempts the settle used. A token or USD budget cap that trips on the red head
+settles `budget-exhausted` instead, as it does for a pre-merge red. A fix head
+that is itself still red once the budget is spent settles `Failed` as
+`fix-exhausted` through the red-CI loop, not as `landing-failed`.
