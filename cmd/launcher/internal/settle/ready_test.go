@@ -355,7 +355,7 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushedHeadRed},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -375,7 +375,7 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 }
 
 // A gateResult outside the four known variants panics rather than silently
-// mapping to errLandingNeverGreen, so a new variant must be handled explicitly
+// mapping to a default error, so a new variant must be handled explicitly
 // (issue #1175).
 func TestRewaitGateResultErr_UnhandledVariantPanics(t *testing.T) {
 	defer func() {
