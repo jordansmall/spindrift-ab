@@ -331,6 +331,13 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			if !strings.Contains(reason, errLandingNeverGreen.Error()) {
 				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, errLandingNeverGreen.Error())
 			}
+			var named bool
+			for _, cc := range fc.CommentCalls {
+				named = named || strings.Contains(cc.Body, "0 of 0 used across the landing")
+			}
+			if !named {
+				t.Errorf("landing-failed comment must name attempts used; comments=%v", fc.CommentCalls)
+			}
 			iss, _ := fc.Issue("1")
 			if !containsLabel(iss.Labels, "agent-failed") {
 				t.Errorf("issue must carry agent-failed; labels=%v", iss.Labels)
@@ -351,11 +358,12 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 		g       gateResult
 		wantErr error
 		wantNil bool
+		red     bool
 	}{
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushedRed, red: true},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -369,6 +377,12 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 			}
 			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("rewaitGateResultErr(%v) = %v, want wrapping %v", tc.g, err, tc.wantErr)
+			}
+			if got := errors.Is(err, errForcePushedRed); got != tc.red {
+				t.Errorf("rewaitGateResultErr(%v) = %v: errForcePushedRed match = %v, want %v", tc.g, err, got, tc.red)
+			}
+			if tc.red && !errors.Is(err, errLandingNeverGreen) {
+				t.Errorf("rewaitGateResultErr(%v) = %v, want wrapping %v", tc.g, err, errLandingNeverGreen)
 			}
 		})
 	}
