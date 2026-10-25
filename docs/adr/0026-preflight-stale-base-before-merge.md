@@ -3,6 +3,11 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended by issue #5053** (see
+> [the amendment below](#amendment-issue-5053-a-red-post-force-push-head-gets-a-fix-pass)):
+> a red post-force-push re-wait now dispatches the red-CI fix pass before the
+> issue can settle `Failed`.
 
 ## Context
 
@@ -128,3 +133,19 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+Every force-push on the landing path (the stale-base preflight rebase, the
+rebase-retry, and an agent-dispatched conflict-resolve box) is followed by a
+CI re-wait. That re-wait used to settle the issue `Failed` the moment it ended
+red. It now dispatches the red-CI fix pass first, off the same
+`MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop draws on. The budget is
+shared across the whole settle, not refilled per force-push. A head the fix
+pass turns green re-enters the merge path as a first-green head does, with the
+rebase-retry and conflict-resolve budgets intact.
+
+The issue still ends `Failed` (`landing-failed`) when that budget is spent, when
+the re-wait times out, or when the conflict-resolve dispatch or its outbox
+relay fails. Issue #5053 failed this way: a conflict-resolve force-push went
+red and settled `landing-failed` 13 seconds later, with no fix pass run.

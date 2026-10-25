@@ -3514,7 +3514,9 @@ branch and re-waits for CI to confirm green on the rebased tree** (its own
 attempt budget off `MAX_REBASE_ATTEMPTS`, independent of the reactive
 conflict-retry loop's counters) before merging — so a PR whose rebase no longer
 compiles against a freshly-merged sibling is blocked at that point instead of
-landing on the strength of its stale green result. A query error is logged and
+landing on the strength of its stale green result. A red re-wait first runs
+the red-CI fix pass off the shared `MAX_FIX_ATTEMPTS` budget, so the PR is
+fixed or, once that budget is spent, blocked. A query error is logged and
 swallowed rather than blocking the merge; the ordinary `Merge` call surfaces
 any real problem through its already-tested error handling.
 

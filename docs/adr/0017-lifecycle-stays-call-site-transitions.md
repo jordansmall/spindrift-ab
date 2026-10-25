@@ -1,5 +1,12 @@
 # The Dispatch lifecycle stays call-site transitions; no lifecycle module
 
+> **Amended by
+> [ADR 0026](0026-preflight-stale-base-before-merge.md#amendment-issue-5053-a-red-post-force-push-head-gets-a-fix-pass)
+> (issue #5053):** a red post-force-push re-wait now gets the red-CI fix pass,
+> off the shared `MAX_FIX_ATTEMPTS` budget, before the issue can settle
+> `Failed`. A re-wait timeout or a failed conflict-resolve dispatch or relay
+> still settles `Failed` at once. The text below predates that amendment.
+
 Issue #139 deferred a `cmd/launcher/internal/lifecycle` module (a transition
 table owning the Dispatch lifecycle's valid edges) pending a deletion-test
 re-run once self-heal (#136) and the retry work had landed. Re-run 2026-07-10:
