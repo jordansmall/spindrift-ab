@@ -65,6 +65,10 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 	// when a fix pass runs, so the pre-merge and post-force-push reds share one
 	// budget.
 	redAfterPush := false
+	// forcePushed sticks once any head was force-pushed, so a red that outlives
+	// the shared budget settles landing-failed and counts the force-pushed
+	// head's own fix attempts (attempt - attemptsAtPush).
+	forcePushed, attemptsAtPush := false, 0
 	for attempt := 0; ; {
 		var (
 			obs        watchObservation
@@ -125,6 +129,9 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 				}
 				if errors.Is(err, errForcePushedHeadRed) {
 					redAfterPush = true
+					if !forcePushed {
+						forcePushed, attemptsAtPush = true, attempt
+					}
 					continue
 				}
 				if errors.Is(err, errLandingNeverGreen) {
@@ -154,8 +161,9 @@ func (s *Settle) selfHealGate(d dispatch.Dispatcher, num string, gen uint64, pr 
 			if s.terminated(num, gen) {
 				return landingAbandoned, ""
 			}
-			if redAfterPush && attempt >= s.cfg.MaxFixAttempts {
-				reason := fmt.Sprintf("force-pushed head went red after %d fix attempt(s)", attempt)
+			if forcePushed && attempt >= s.cfg.MaxFixAttempts {
+				reason := fmt.Sprintf("force-pushed head still red; fix budget exhausted (%d of %d fix attempt(s) used, %d on the force-pushed head)",
+					attempt, s.cfg.MaxFixAttempts, attempt-attemptsAtPush)
 				fmt.Printf("    #%s  landing=%s  status=landing-failed  !! %s\n", num, pr, reason)
 				s.it.Comment(num, fmt.Sprintf("landing failed: %s — no green PR exists at the current head", reason))
 				s.transitionState(num, forge.InProgress, forge.Failed, reason, ReasonLandingFailed)

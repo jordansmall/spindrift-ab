@@ -911,7 +911,7 @@ func TestSelfHeal_ForcePushRed_BudgetExhausted_EndsLandingFailed(t *testing.T) {
 	if landing != landingFailed {
 		t.Fatalf("selfHeal = %v, want landingFailed", landing)
 	}
-	if !strings.Contains(reason, "after 0 fix attempt(s)") {
+	if !strings.Contains(reason, "0 of 0 fix attempt(s) used") {
 		t.Errorf("reason = %q, want it to name the attempts used", reason)
 	}
 	if len(d.FixCalls) != 0 {
@@ -941,8 +941,8 @@ func TestSelfHeal_ForcePushRed_SharesBudgetWithPreMergeRed(t *testing.T) {
 	if got := fixPasses(d); len(got) != 1 {
 		t.Errorf("fix passes = %v, want exactly the one pre-merge pass", got)
 	}
-	if !strings.Contains(reason, "after 1 fix attempt(s)") {
-		t.Errorf("reason = %q, want it to name 1 attempt", reason)
+	if !strings.Contains(reason, "1 of 1 fix attempt(s) used") {
+		t.Errorf("reason = %q, want it to name 1 attempt used", reason)
 	}
 }
 
@@ -959,5 +959,28 @@ func TestSelfHeal_ConflictResolveFailure_NoFixPass(t *testing.T) {
 	}
 	if len(d.FixCalls) != 0 {
 		t.Errorf("fix passes = %v, want none", fixPasses(d))
+	}
+}
+
+// A fix pass on the force-pushed head that is itself red exhausts the shared
+// budget: the issue settles landing-failed with a comment naming the attempts,
+// not the pre-merge fix-exhausted class.
+func TestSelfHeal_ForcePushRed_FixStillRed_EndsLandingFailed(t *testing.T) {
+	s, fc, d := forcePushRedSettle(t, 1, []forge.RollupState{
+		forge.StateSuccess, forge.StateSuccess,
+		forge.StateFailure, // rewait: red
+		forge.StateFailure, // after fix 1: still red
+	})
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Fatalf("selfHeal = %v (%q), want landingFailed", landing, reason)
+	}
+	if !strings.Contains(reason, "1 of 1 fix attempt(s) used, 1 on the force-pushed head") {
+		t.Errorf("reason = %q, want it to name the force-pushed head's attempts", reason)
+	}
+	if len(fc.CommentCalls) == 0 {
+		t.Errorf("no failure comment posted")
 	}
 }
