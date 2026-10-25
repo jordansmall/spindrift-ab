@@ -4,6 +4,16 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended (issue #5053 follow-up):** a force-pushed head — this
+> preflight's rebase, the reactive rebase-retry's, or a conflict-resolve
+> Box's — whose CI re-wait ends **red** no longer settles `Failed` on the
+> spot. It gets the ordinary red-CI fix pass, on the same `MAX_FIX_ATTEMPTS`
+> budget the pre-merge loop draws on (shared, not a fresh allowance per
+> force-push), and a head the fix pass turns green re-enters the merge path
+> like a first green. The issue still ends `Failed` (`landing-failed`) once
+> that budget is spent, or when the re-wait times out or the conflict-resolve
+> dispatch or its relay fails.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -112,7 +122,13 @@ combined tree) instead of just relocating it to a human.
   (`TestMergeImmediate_StaleBaseCombinedBreakBlocksMerge` in
   `internal/settle/merge_test.go`): a `NeedsUpdate`-true PR whose rebased
   tree then fails CI is blocked from merging, rather than landing on the
-  strength of its stale green result.
+  strength of its stale green result. That red rebased head now gets a fix
+  pass on the shared `MAX_FIX_ATTEMPTS` budget before anything settles
+  `Failed`, while a non-red re-wait failure still settles `Failed` with no
+  fix pass (`TestSelfHeal_ForcePushedRed_FixPassThenMerges`,
+  `TestSelfHeal_ForcePushedRed_SharedBudgetExhausted`,
+  `TestSelfHeal_ForcePushNonRedFailures_NoFixPass` in
+  `internal/settle/ready_test.go`).
 - Two distinct preflight failures are handled differently, and deliberately
   so (issue #940). A `NeedsUpdate` *query* error leaves staleness merely
   unknown, so it is logged and swallowed — the normal `Merge` attempt
