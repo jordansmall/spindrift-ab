@@ -72,7 +72,7 @@ and reports `behind_by > 0`.
 `Merge` attempt. On a hit, the launcher proactively rebases the branch and
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
-before the merge can complete. A CI failure on that rebased tree now demotes
+before the merge can complete. A CI failure on that rebased tree now demotes (*amended by issue #5095*: a red re-wait first dispatches a fix pass)
 the same way a genuine red gate result always has; a clean rebase proceeds
 to merge as before. The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
@@ -128,3 +128,15 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): red post-force-push head gets a fix pass
+
+The "CI failure on that rebased tree demotes" rule above no longer applies
+to a genuinely red post-force-push re-wait, which now dispatches the red-CI
+fix pass instead of settling `Failed` at once. The pass draws from the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge loop (not a fresh allowance per
+force-push), and a head it turns green re-enters the merge path with its
+rebase-retry and conflict-resolve budgets intact. The issue still ends
+`Failed`/`landing-failed` when that budget is exhausted (the comment names
+the attempts used), when the re-wait times out, or when the conflict-resolve
+dispatch or its relay fails.
