@@ -783,3 +783,39 @@ func assertRelayFailureParked(t *testing.T, fc *forge.Fake, num string) {
 		}
 	}
 }
+
+// A relay that fails after conflict-resolve leaves no green head, so selfHeal
+// settles landing-failed and never treats it as a red head to fix.
+func TestSelfHeal_ConflictResolveRelayFailed_EndsFailedWithoutFixPass(t *testing.T) {
+	fc := forge.NewFake(testDispatchLabels)
+	c := fixConfig(3)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	c.Policy = retry.Policy{Max: 1, Unit: time.Second}
+	c.OutboxDir = func(num string) string { return "/outbox/" + num }
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.RebaseErr = forge.ErrMergeConflict
+	fc.SetCheckStates(testPR, []forge.RollupState{forge.StateSuccess, forge.StateSuccess})
+	fc.RelayBundleErr = errors.New("ssh auth blip")
+	s := newTestSettle(c, fc, fc.AsGithubReadOnly())
+	d := dispatch.NewFake()
+
+	var landing landingResult
+	var reason string
+	captureStdout(t, func() { landing, reason = s.selfHeal(d, "1", 0, testPR) })
+
+	if landing != landingFailed {
+		t.Fatalf("selfHeal = (%v, %q), want landingFailed", landing, reason)
+	}
+	if !strings.Contains(reason, "relay after conflict-resolve failed") {
+		t.Errorf("reason = %q, want the relay failure named", reason)
+	}
+	if len(d.FixCalls) != 0 {
+		t.Errorf("a failed relay must not dispatch a fix pass; got %+v", d.FixCalls)
+	}
+	iss, _ := fc.Issue("1")
+	if !containsLabel(iss.Labels, "agent-failed") {
+		t.Errorf("issue must carry agent-failed; labels=%v", iss.Labels)
+	}
+}
