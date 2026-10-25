@@ -740,8 +740,9 @@ a merged/handed-off PR on `github`, a landed branch when the Code Forge is
 push-only/absent, or a posted verdict for a research dispatch) or `Failed`
 (the Box crashed, never reached green past MAX_FIX_ATTEMPTS, or — on `github`
 — a force-pushed head from rebase-retry or an agent conflict-resolve box never
-re-confirmed green; human triage, re-transition to retry). Each Issue Tracker
-adapter maps these states to its native mechanism:
+re-confirmed green or stayed red past the shared fix budget; human triage,
+re-transition to retry). Each Issue Tracker adapter maps these states to its
+native mechanism:
 
 - `github` — labels (`ready-for-agent` → `agent-in-progress` →
   `agent-complete`/`agent-failed`), swapped atomically. This is the original,
@@ -767,10 +768,15 @@ updates a clean checked-out branch); `manual` (default) leaves the branch/PR
 for a human; `auto` is the forge's native auto-merge — meaningful on any
 `PRForge` backend (`github`, `forgejo`). A merge failure after green leaves the
 issue `Complete` with a merge-blocked note — never `Failed` — once that landing
-attempt settles, except when the post-force-push re-wait (after rebase or
-conflict-resolve) ends red or times out, or the conflict-resolve dispatch
-itself fails: there the force-pushed head never went green, so the issue ends
-`Failed` instead.
+attempt settles, except for a post-force-push re-wait (after rebase or
+conflict-resolve) that goes wrong. A red re-wait dispatches the red-CI fix
+pass from the same shared fix budget as the pre-merge loop, and a head that
+fix turns green re-enters the merge path like a first-green head. The issue
+ends `Failed` instead when that budget is exhausted (the comment names the
+attempts the force-pushed head consumed), when a fix pass on the red head
+itself fails, produces no commit, or hits a token/USD cap or a gate timeout,
+when the re-wait times out, or when the conflict-resolve dispatch or its relay
+fails: there the force-pushed head never went green.
 _Was_: "Label lifecycle" — labels were GitHub's storage mechanism, mistaken for
 the states themselves.
 _Avoid_: status, queue, state machine.

@@ -73,9 +73,11 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
-`MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
+the same way a genuine red gate result always has (*Amended by issue #5053:*
+a red post-force-push re-wait dispatches the red-CI fix pass from the shared
+`MAX_FIX_ATTEMPTS` budget first, and demotes only once that budget is spent);
+a clean rebase proceeds to merge as before. The preflight rebase draws its own
+attempt budget off `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
 exhaust an allowance the real conflict path still needed. `0` still means
