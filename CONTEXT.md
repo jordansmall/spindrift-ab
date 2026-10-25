@@ -740,7 +740,8 @@ a merged/handed-off PR on `github`, a landed branch when the Code Forge is
 push-only/absent, or a posted verdict for a research dispatch) or `Failed`
 (the Box crashed, never reached green past MAX_FIX_ATTEMPTS, or — on `github`
 — a force-pushed head from rebase-retry or an agent conflict-resolve box never
-re-confirmed green; human triage, re-transition to retry). Each Issue Tracker
+re-confirmed green: its re-wait timed out, its conflict-resolve dispatch failed,
+or it stayed red past the fix passes; human triage, re-transition to retry). Each Issue Tracker
 adapter maps these states to its native mechanism:
 
 - `github` — labels (`ready-for-agent` → `agent-in-progress` →
@@ -768,9 +769,12 @@ for a human; `auto` is the forge's native auto-merge — meaningful on any
 `PRForge` backend (`github`, `forgejo`). A merge failure after green leaves the
 issue `Complete` with a merge-blocked note — never `Failed` — once that landing
 attempt settles, except when the post-force-push re-wait (after rebase or
-conflict-resolve) ends red or times out, or the conflict-resolve dispatch
-itself fails: there the force-pushed head never went green, so the issue ends
-`Failed` instead.
+conflict-resolve) times out, or the conflict-resolve dispatch itself fails:
+there the force-pushed head never went green, so the issue ends `Failed`
+instead. A post-force-push re-wait that comes back red gets a fix pass from the
+same `MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI loop; a head that fix
+turns green re-enters the merge path, and the issue ends `Failed` only once
+that budget is spent.
 _Was_: "Label lifecycle" — labels were GitHub's storage mechanism, mistaken for
 the states themselves.
 _Avoid_: status, queue, state machine.

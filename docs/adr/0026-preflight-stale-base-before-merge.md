@@ -128,3 +128,14 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (red post-force-push fix pass)
+
+A preflight rebase is a force-push, so its post-force-push CI re-wait is the
+same re-wait a clean rebase-retry or an agent conflict-resolve gets. A red
+re-wait there no longer demotes at once: it dispatches the existing red-CI fix
+pass, drawing on the same `MAX_FIX_ATTEMPTS` budget as the pre-merge red-CI
+loop, and a head that fix turns green re-enters the merge path with fresh
+rebase-retry and conflict-resolve budgets. The issue settles `Failed` only once
+that fix budget is spent, or when the re-wait times out or the conflict-resolve
+dispatch fails, as before. The failure comment names the fix passes used.
