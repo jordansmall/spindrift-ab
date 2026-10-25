@@ -128,3 +128,21 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+A CI failure on the rebased tree no longer demotes on the spot. When any
+`immediate` force-push (this preflight's rebase, a reactive rebase-retry,
+or a conflict-resolve Box) is followed by a re-wait that ends red, the
+launcher dispatches the ordinary red-CI fix pass. It draws on the same
+`MAX_FIX_ATTEMPTS` budget the pre-merge red-CI loop already spent from,
+not a fresh allowance per force-push, and a head the fix pass turns green
+re-enters `mergeImmediate` exactly as a first-green head does, preflight
+and rebase budgets included.
+
+The issue still ends `Failed` with `landing-failed` when that budget is
+exhausted, when the re-wait times out, or when the conflict-resolve
+dispatch or its outbox relay fails. The failure comment names how many fix
+passes the force-pushed head consumed. The combined-tree break this ADR
+exists to catch is still never merged: the fix pass has to turn it green
+first.

@@ -2932,10 +2932,12 @@ ready-for-agent ──dispatch──▶ agent-in-progress ───landing settl
   "merge blocked" and leaves the issue `agent-in-progress`.
 - **Red CI self-heals before it fails.** If CI goes genuinely red, the launcher
   dispatches up to `MAX_FIX_ATTEMPTS` fix boxes on the same branch and re-gates
-  after each. Only once those are exhausted (or a fix box exits non-zero
-  after transient retries) does it swap to `agent-failed` and stop. There are
-  **no automatic re-dispatches from `ready-for-agent`**: a human inspects
-  `.spindrift/logs/issue-<n>.log` and re-labels to retry. A fix box's transient
+  after each. A red CI re-wait after an `immediate` force-push draws on the
+  same budget, not a fresh one. Only once those are exhausted (or a fix box
+  exits non-zero after transient retries) does it swap to `agent-failed` and
+  stop. There are **no automatic re-dispatches from `ready-for-agent`**: a
+  human inspects `.spindrift/logs/issue-<n>.log` and re-labels to retry. A
+  fix box's transient
   exits get the same in-session retry as the initial run — a 429 mid-fix-pass
   holds until the reset time and re-dispatches rather than burning one of the
   `MAX_FIX_ATTEMPTS` slots. The settle's own warnings sit beside that log in
@@ -3513,8 +3515,10 @@ alone rely on being enabled). A `behind_by > 0` hit **proactively rebases the
 branch and re-waits for CI to confirm green on the rebased tree** (its own
 attempt budget off `MAX_REBASE_ATTEMPTS`, independent of the reactive
 conflict-retry loop's counters) before merging — so a PR whose rebase no longer
-compiles against a freshly-merged sibling is blocked at that point instead of
-landing on the strength of its stale green result. A query error is logged and
+compiles against a freshly-merged sibling never lands on the strength of its
+stale green result. A red re-wait there, as after any force-push, dispatches a
+fix pass from the shared `MAX_FIX_ATTEMPTS` budget, and the issue ends
+`agent-failed` once that budget is spent. A query error is logged and
 swallowed rather than blocking the merge; the ordinary `Merge` call surfaces
 any real problem through its already-tested error handling.
 
@@ -6637,16 +6641,21 @@ enter several: one wait per self-heal attempt, so `MAX_FIX_ATTEMPTS`
 force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
-`PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
-cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
-enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
-that confirms green on its first poll and merges adds only seconds to the
-Box's runtime. The one-shot wave has no refill loop to stop — its batch is
+`PREFLIGHT_STALE_BASE` is on. A re-wait that ends red draws a fix pass
+from the same `MAX_FIX_ATTEMPTS` budget, and a head that fix turns green
+re-enters the merge path with fresh rebase budgets, so each fix pass can
+buy one more round of force-push waits. The ceiling is therefore
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` poll windows: sixteen
+at the defaults, about sixteen hours of polling alone, or twenty windows
+with the stale-base preflight enabled. A settle with no red force-pushed
+head stays within `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` windows
+(seven at the defaults). Each red gate and each conflict a rebase cannot
+resolve also dispatches its own Box — up to three fix Boxes in all, and up
+to three conflict-resolve Boxes per merge-path round, or four with the
+stale-base preflight enabled, which keeps its own retry budget — and those
+runtimes land on top of the polling. The floor is the other end of the
+same range: a settle that confirms green on its first poll and merges adds
+only seconds to the Box's runtime. The one-shot wave has no refill loop to stop — its batch is
 fixed up front — so there the first signal simply means launch nothing
 further from that batch while whatever is already running finishes and
 settles. The launcher prints a line when a drain begins, so an operator can
