@@ -191,6 +191,9 @@ type Settle struct {
 	// reportKey is the key num's report records go out under when it is not
 	// dispatchkey.Issue(num). Guarded by settledMu.
 	reportKey map[string]dispatchkey.Key
+	// fixPasses counts the fix passes each landing has run, shared by the
+	// pre-merge loop and every post-force-push re-wait (guarded by settledMu).
+	fixPasses map[string]int
 }
 
 // Registrar is the "settler that owns a termination registry" seam: a caller
