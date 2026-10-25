@@ -3,6 +3,12 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (follow-up to #5053):** a red CI on the rebased, force-pushed
+> head no longer demotes immediately. The red-CI fix pass runs first, from the
+> same MAX_FIX_ATTEMPTS budget the pre-merge loop uses; a head it turns green
+> re-enters the merge path. Only budget exhaustion, a re-wait timeout, or a
+> conflict-resolve dispatch/relay failure demotes the issue to `Failed`.
 
 ## Context
 
