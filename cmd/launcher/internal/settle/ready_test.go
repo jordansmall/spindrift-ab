@@ -274,9 +274,10 @@ func TestSelfHeal_ConflictResolveAlreadyRunning_ReportsAbandonedNotFailed(t *tes
 	assertClaimUntouched(t, fc)
 }
 
-// When the post-force-push re-wait ends in genuine red CI or a timeout, the
-// issue ends agent-failed: the force-pushed head never produced a green PR
-// (issue #758).
+// When the post-force-push re-wait times out, the issue ends agent-failed: the
+// force-pushed head never produced a green PR (issue #758). A red re-wait
+// spends the fix budget instead; see TestSelfHeal_ForcePushRed_*. A relay
+// failure is TestSelfHeal_ForcePushNotRed_RelayFailureNoFixPass.
 func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -285,17 +286,6 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 		pollTimeout int
 		checkStates []forge.RollupState
 	}{
-		{
-			name: "rewait after a plain rebase ends genuine red",
-			// Rebase succeeds outright, so mergeImmediate goes straight to the
-			// post-force-push re-wait without a conflict-resolve.
-			rebaseErr:   nil,
-			pollTimeout: 100,
-			checkStates: []forge.RollupState{
-				forge.StateSuccess, forge.StateSuccess, // initial gateToGreen
-				forge.StateFailure, // rewait's gateToGreen: genuine red
-			},
-		},
 		{
 			name: "rewait after conflict-resolve times out",
 			// Rebase itself conflicts, so mergeImmediate dispatches
@@ -355,7 +345,7 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushRed},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -866,5 +856,272 @@ func TestSelfHeal_TuningHold_CommentPRErrorStillHolds(t *testing.T) {
 	}
 	if fc.Merged != "" {
 		t.Errorf("a held PR must not merge; fc.Merged=%q", fc.Merged)
+	}
+}
+
+// A force-pushed head that goes red is repaired by a fix pass drawn from the
+// shared budget, then re-enters the merge path as a first-green head. Each case
+// enters mergeImmediate's re-wait through a different force-push.
+func TestSelfHeal_ForcePushRed_FixSucceedsThenMerges(t *testing.T) {
+	green := forge.StateSuccess
+	red := forge.StateFailure
+	cases := []struct {
+		name        string
+		rebaseErr   error
+		preflight   bool
+		checkStates []forge.RollupState
+	}{
+		{
+			name:        "plain rebase",
+			checkStates: []forge.RollupState{green, green, red, green, green},
+		},
+		{
+			name:        "conflict-resolve",
+			rebaseErr:   forge.ErrMergeConflict,
+			checkStates: []forge.RollupState{green, green, red, green, green},
+		},
+		{
+			// The stale-base preflight runs again on the post-fix merge, so its
+			// rebase needs a second re-wait to go green.
+			name:        "stale-base preflight",
+			preflight:   true,
+			checkStates: []forge.RollupState{green, green, red, green, green, green, green, green, green},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixConfig(3)
+			c.MergeMode = "immediate"
+			c.MaxRebaseAttempts = 3
+			c.PreflightStaleBase = tc.preflight
+			fc := forge.NewFake(testDispatchLabels)
+			fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+			fc.MergeErrs = []error{forge.ErrMergeConflict}
+			fc.RebaseErr = tc.rebaseErr
+			fc.SetNeedsUpdate(testPR, tc.preflight)
+			fc.SetCheckStates(testPR, tc.checkStates)
+			s := newTestSettle(c, fc, fc)
+			d := dispatch.NewFake()
+
+			landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+			if landing != landingMerged {
+				t.Fatalf("selfHeal = %v (reason %q), want landingMerged after one fix pass", landing, reason)
+			}
+			if passes := fixPasses(d); len(passes) != 1 || passes[0] != 1 {
+				t.Errorf("expected exactly fix-pass-1, got %v", passes)
+			}
+			if last := fc.TransitionStateCalls[len(fc.TransitionStateCalls)-1]; last.To != forge.Complete {
+				t.Errorf("last transition To=%v, want Complete", last.To)
+			}
+		})
+	}
+}
+
+// A force-pushed red head with the shared fix budget already spent fails
+// without another fix pass, and the comment names the passes that head used
+// (none: the pre-merge red spent the only pass from the shared budget).
+func TestSelfHeal_ForcePushRed_BudgetSpentFailsWithCount(t *testing.T) {
+	c := fixConfig(1)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	// The pre-merge red spends the only fix pass; the post-force-push re-wait
+	// is then red with no budget left.
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateFailure, forge.StateSuccess, forge.StateSuccess,
+		forge.StateFailure,
+	})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Fatalf("selfHeal = %v (reason %q), want landingFailed", landing, reason)
+	}
+	if len(d.FixCalls) != 1 {
+		t.Errorf("want exactly 1 fix call (the pre-merge pass), got %+v", d.FixCalls)
+	}
+	const want = "after 0 fix pass(es) on it; shared fix budget of 1 spent"
+	if !strings.Contains(reason, want) {
+		t.Errorf("selfHeal reason = %q, want it to contain %q", reason, want)
+	}
+	if len(fc.CommentCalls) == 0 || !strings.Contains(fc.CommentCalls[len(fc.CommentCalls)-1].Body, want) {
+		t.Errorf("last comment must contain %q; comments=%+v", want, fc.CommentCalls)
+	}
+	if last := fc.TransitionStateCalls[len(fc.TransitionStateCalls)-1]; last.To != forge.Failed {
+		t.Errorf("last transition To=%v, want Failed", last.To)
+	}
+}
+
+// With MaxFixAttempts=0 a red post-force-push re-wait settles landing-failed
+// at once, its comment naming a budget of 0.
+func TestSelfHeal_ForcePushRed_ZeroBudgetFailsWithCount(t *testing.T) {
+	c := fixConfig(0)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.SetCheckStates(testPR, []forge.RollupState{forge.StateSuccess, forge.StateSuccess, forge.StateFailure})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Fatalf("selfHeal = %v (reason %q), want landingFailed", landing, reason)
+	}
+	if len(d.FixCalls) != 0 {
+		t.Errorf("want 0 fix calls, got %+v", d.FixCalls)
+	}
+	const want = "after 0 fix pass(es) on it; shared fix budget of 0 spent"
+	if len(fc.CommentCalls) == 0 || !strings.Contains(fc.CommentCalls[len(fc.CommentCalls)-1].Body, want) {
+		t.Errorf("last comment must contain %q; comments=%+v", want, fc.CommentCalls)
+	}
+	if last := fc.TransitionStateCalls[len(fc.TransitionStateCalls)-1]; last.To != forge.Failed {
+		t.Errorf("last transition To=%v, want Failed", last.To)
+	}
+}
+
+// Re-waits that cannot yield a red head to fix (a timeout, a conflict-resolve
+// dispatch failure) settle Failed without spending a fix pass.
+func TestSelfHeal_ForcePushNotRed_NoFixPass(t *testing.T) {
+	cases := []struct {
+		name        string
+		rebaseErr   error
+		resolveErr  error
+		pollTimeout int
+	}{
+		{name: "rewait times out", pollTimeout: 0},
+		{name: "conflict-resolve dispatch fails", rebaseErr: forge.ErrMergeConflict, resolveErr: errors.New("boom"), pollTimeout: 100},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixConfig(3)
+			c.MergeMode = "immediate"
+			c.MaxRebaseAttempts = 3
+			c.MergePollTimeout = tc.pollTimeout
+			fc := forge.NewFake(testDispatchLabels)
+			fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+			fc.MergeErrs = []error{forge.ErrMergeConflict}
+			fc.RebaseErr = tc.rebaseErr
+			fc.SetCheckStates(testPR, []forge.RollupState{forge.StateSuccess, forge.StateSuccess})
+			s := newTestSettle(c, fc, fc)
+			d := dispatch.NewFake()
+			d.ResolveConflictErr = tc.resolveErr
+
+			landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+			if landing != landingFailed {
+				t.Errorf("selfHeal = %v, want landingFailed", landing)
+			}
+			if !strings.Contains(reason, errLandingNeverGreen.Error()) {
+				t.Errorf("selfHeal reason = %q, want it to contain %q", reason, errLandingNeverGreen.Error())
+			}
+			if len(d.FixCalls) != 0 {
+				t.Errorf("want 0 fix calls, got %+v", d.FixCalls)
+			}
+		})
+	}
+}
+
+// A relay failure after conflict-resolve leaves the head unconfirmed, so it
+// settles Failed without a fix pass.
+func TestSelfHeal_ForcePushNotRed_RelayFailureNoFixPass(t *testing.T) {
+	c := fixConfig(3)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	c.OutboxDir = func(num string) string { return "/outbox/" + num }
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.RebaseErr = forge.ErrMergeConflict
+	fc.RelayBundleErr = errors.New("bundle missing")
+	fc.SetCheckStates(testPR, []forge.RollupState{forge.StateSuccess, forge.StateSuccess})
+	s := newTestSettle(c, fc, fc.AsGithubReadOnly())
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Errorf("selfHeal = %v, want landingFailed", landing)
+	}
+	if !strings.Contains(reason, errLandingNeverGreen.Error()) {
+		t.Errorf("selfHeal reason = %q, want it to contain %q", reason, errLandingNeverGreen.Error())
+	}
+	if len(d.FixCalls) != 0 {
+		t.Errorf("want 0 fix calls, got %+v", d.FixCalls)
+	}
+}
+
+// A force-pushed head that stays red after its own fix pass settles
+// landing-failed, with a comment naming that head's fix count, not a silent
+// fix-exhausted.
+func TestSelfHeal_ForcePushRed_PostFixRedLandingFailed(t *testing.T) {
+	c := fixConfig(1)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateSuccess, forge.StateSuccess, forge.StateFailure,
+		forge.StateFailure,
+	})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Fatalf("selfHeal = %v (reason %q), want landingFailed", landing, reason)
+	}
+	if len(d.FixCalls) != 1 {
+		t.Errorf("want exactly 1 fix call (the force-push pass), got %+v", d.FixCalls)
+	}
+	const want = "after 1 fix pass(es) on it; shared fix budget of 1 spent"
+	if !strings.Contains(reason, want) {
+		t.Errorf("selfHeal reason = %q, want it to contain %q", reason, want)
+	}
+	if n := len(fc.CommentCalls); n == 0 || !strings.Contains(fc.CommentCalls[n-1].Body, "landing failed: ") {
+		t.Errorf("last comment must be a landing-failed comment; comments=%+v", fc.CommentCalls)
+	}
+	if last := fc.TransitionStateCalls[len(fc.TransitionStateCalls)-1]; last.To != forge.Failed {
+		t.Errorf("last transition To=%v, want Failed", last.To)
+	}
+}
+
+// Two force-pushes in one landing share the fix budget: the first force-push's
+// red spends the only pass, so the second force-push's red gets no fresh pass
+// of its own and settles landing-failed.
+func TestSelfHeal_ForcePushRed_NoFreshBudgetPerForcePush(t *testing.T) {
+	c := fixConfig(1)
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateSuccess, forge.StateSuccess, forge.StateFailure,
+		forge.StateSuccess, forge.StateSuccess, forge.StateFailure,
+	})
+	fc.MergeErrs = []error{forge.ErrMergeConflict, forge.ErrMergeConflict}
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Fatalf("selfHeal = %v (reason %q), want landingFailed", landing, reason)
+	}
+	if len(d.FixCalls) != 1 {
+		t.Errorf("want exactly 1 fix call across both force-pushes, got %+v", d.FixCalls)
+	}
+	const want = "after 0 fix pass(es) on it; shared fix budget of 1 spent"
+	if !strings.Contains(reason, want) {
+		t.Errorf("selfHeal reason = %q, want it to contain %q", reason, want)
 	}
 }
