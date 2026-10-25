@@ -128,3 +128,35 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+Under `MERGE_MODE=immediate` the original landing path treated any red
+post-force-push re-wait as terminal: a head force-pushed by a clean
+rebase-retry, a stale-base preflight rebase, or an agent-dispatched
+conflict-resolve Box that went red on the re-wait settled the issue `Failed`
+on the spot, with no fix pass. Issue #5053 hit this: a conflict-resolve
+force-push went red on `flakemodule-equivalence` and the issue settled
+`landing-failed` 13 seconds later.
+
+This amends that rule. A red post-force-push re-wait now dispatches the
+existing red-CI fix pass, the same one the pre-merge red-CI loop uses. The
+fix pass draws from the same `MAX_FIX_ATTEMPTS` budget as that loop, not a
+fresh allowance per force-push, so a settle's total fix attempts stay
+bounded however many force-pushes it makes. A head the fix pass turns green
+re-enters the merge path exactly as a first-green head does, with the
+rebase-retry and conflict-resolve budgets starting fresh.
+
+The issue still ends `Failed` with `landing-failed` when the fix budget is
+exhausted on a force-pushed head, whether the budget was already spent when the
+re-wait went red or a fix pass on that head left it red again, when the
+re-wait times out or its check-state read errors, or when the conflict-resolve
+dispatch or its outbox relay itself fails. The exhausted-budget comment counts
+the fix attempts the force-pushed head consumed since its latest force-push,
+and the budget used overall: "CI still red on the force-pushed head after N
+fix attempt(s) on it (M of K fix attempts used)".
+
+A fix pass on a force-pushed head keeps the settle reasons it had before this
+amendment: a later CI-poll timeout settles `gate-terminal`, a pass that pushes
+no commit `fix-no-op`, and the token or USD cap `budget-exhausted`. Only the
+fix budget running out on a force-pushed head is `landing-failed`.

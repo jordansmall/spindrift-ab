@@ -739,9 +739,10 @@ the launch button) → `InProgress` (a Box has been dispatched; re-runs skip it)
 a merged/handed-off PR on `github`, a landed branch when the Code Forge is
 push-only/absent, or a posted verdict for a research dispatch) or `Failed`
 (the Box crashed, never reached green past MAX_FIX_ATTEMPTS, or — on `github`
-— a force-pushed head from rebase-retry or an agent conflict-resolve box never
-re-confirmed green; human triage, re-transition to retry). Each Issue Tracker
-adapter maps these states to its native mechanism:
+— a force-pushed head from rebase-retry or an agent conflict-resolve box stayed
+red through the same budget (a red re-wait draws its fix passes from it) or
+never re-confirmed green in time; human triage, re-transition to retry). Each
+Issue Tracker adapter maps these states to its native mechanism:
 
 - `github` — labels (`ready-for-agent` → `agent-in-progress` →
   `agent-complete`/`agent-failed`), swapped atomically. This is the original,
@@ -768,9 +769,13 @@ for a human; `auto` is the forge's native auto-merge — meaningful on any
 `PRForge` backend (`github`, `forgejo`). A merge failure after green leaves the
 issue `Complete` with a merge-blocked note — never `Failed` — once that landing
 attempt settles, except when the post-force-push re-wait (after rebase or
-conflict-resolve) ends red or times out, or the conflict-resolve dispatch
-itself fails: there the force-pushed head never went green, so the issue ends
-`Failed` instead.
+conflict-resolve) times out or errors, the conflict-resolve dispatch or its
+outbox relay itself fails, or a red force-pushed head exhausts the fix budget:
+there the force-pushed head never went green within the budget, so the issue
+ends `Failed` instead. A red re-wait first gets a fix pass; a head that turns
+green re-enters the merge path with fresh rebase and conflict-resolve budgets.
+A fix pass on that head that times out, produces no commit, or hits the token
+or USD cap settles under its own reason, not `landing-failed`.
 _Was_: "Label lifecycle" — labels were GitHub's storage mechanism, mistaken for
 the states themselves.
 _Avoid_: status, queue, state machine.

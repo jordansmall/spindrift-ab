@@ -28,7 +28,9 @@ dispatch failure, or a post-force-push re-wait that ends red or times out)
 never re-confirms green, so there is no green PR at the current head — the
 same "never produced a green PR" condition `InProgress→Failed` already covers
 for a box crash or exhausted fix passes, just discovered later, mid-landing.
-Still the same edge, still named inline at its call site — no new edge.
+Still the same edge, still named inline at its call site — no new edge. (A red
+re-wait no longer fails at once: it takes a fix pass first, per the issue #5053
+amendment to ADR 0026.)
 
 Re-open trigger: a transition added outside the claim or settle paths, or a
 conditional edge — one whose legality depends on runtime state rather than
