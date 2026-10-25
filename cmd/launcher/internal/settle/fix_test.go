@@ -278,6 +278,33 @@ func TestSelfHeal_ExhaustsAllPasses(t *testing.T) {
 	}
 }
 
+// A best-effort HeadCommitSHA failure only suppresses the no-op check; it must
+// not stop the pass counter advancing, or a persistently red head would
+// dispatch fix passes without bound.
+func TestSelfHeal_HeadSHAUnavailableStillExhaustsBudget(t *testing.T) {
+	c := fixConfig(2)
+	fc := forge.NewFake()
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.HeadCommitSHAErr = errors.New("head sha unavailable")
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateFailure, forge.StateFailure, forge.StateFailure, forge.StateFailure,
+	})
+	s := newTestSettle(c, fc, fc)
+
+	d := dispatch.NewFake()
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingFailed {
+		t.Errorf("selfHeal = %v, want landingFailed after exhausting all fix passes", landing)
+	}
+	if !strings.Contains(reason, "ci-red:") {
+		t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, "ci-red:")
+	}
+	if passes := fixPasses(d); !slices.Equal(passes, []int{1, 2}) {
+		t.Errorf("fix passes = %v, want [1 2]", passes)
+	}
+}
+
 // When d.Fix returns a failed Disposition, selfHeal must land failed right away instead of
 // re-polling the unchanged head and burning the rest of the fix-pass budget
 // against the identical cached rollup (issue #1980). The rollup is scripted
