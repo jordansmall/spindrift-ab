@@ -74,7 +74,14 @@ re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
 the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
+to merge as before. (Amended by issue #5053: a red re-wait after any
+force-push — this preflight rebase, a rebase-retry, or a conflict-resolve Box
+— first gets the red-CI fix pass, drawing on the pre-merge `MAX_FIX_ATTEMPTS`
+budget, and a head that pass turns green re-enters the merge path as a
+first-green head does. It demotes only once that budget is spent, settling
+`Failed` with `landing-failed` and a comment naming the fix passes used; a
+re-wait timeout and a conflict-resolve dispatch or relay failure still demote
+with no fix pass.) The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
