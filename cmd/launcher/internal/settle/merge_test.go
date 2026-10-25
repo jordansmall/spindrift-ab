@@ -518,6 +518,9 @@ func TestMergeImmediate_RewaitGenuineRedNotTreatedAsConflict(t *testing.T) {
 	if errors.Is(err, forge.ErrMergeConflict) {
 		t.Errorf("genuine CI red after force-push must not surface as forge.ErrMergeConflict; got %v", err)
 	}
+	if !errors.Is(err, errForcePushRed) {
+		t.Errorf("genuine CI red after force-push must surface as errForcePushRed so selfHealGate can run a fix pass; got %v", err)
+	}
 	if fc.Merged != "" {
 		t.Errorf("Merge must not succeed after genuine CI red; fc.Merged=%q", fc.Merged)
 	}

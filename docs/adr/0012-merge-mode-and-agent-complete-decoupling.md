@@ -55,6 +55,11 @@ after exhausting retries, with a green PR still standing at the pre-rebase
 head) stays `agent-complete` with a merge-blocked note exactly as before —
 only a force-pushed head that never re-confirms green is demoted.
 
+Amended by [ADR 0026](0026-preflight-stale-base-before-merge.md) (issue
+#5053): a post-force-push re-wait that ends red now gets a red-CI fix pass
+before the head is demoted; only an exhausted fix budget, a re-wait timeout, or
+a failed conflict-resolve dispatch or relay still fails the issue.
+
 The shipped default is **`manual`** — the generic-safe choice for the open-source
 ecosystem, where most repos gate merges on some approval, so an `immediate`
 default would fail on first use. This is a behavior change from the prior

@@ -6637,10 +6637,14 @@ enter several: one wait per self-heal attempt, so `MAX_FIX_ATTEMPTS`
 force-push, since a rebase resets the PR's required checks and the
 launcher re-waits for green on the new head — once per
 `MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
-`PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
+`PREFLIGHT_STALE_BASE` is on. Without a red force-pushed head the ceiling is
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
 defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
+stale-base preflight enabled. That formula stops being a ceiling once a
+force-pushed head goes red: its fix pass draws from the same
+`MAX_FIX_ATTEMPTS` budget, but a head the pass turns green re-enters the merge
+path with fresh rebase and conflict-resolve budgets, so each such cycle adds
+windows the formula does not count. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
