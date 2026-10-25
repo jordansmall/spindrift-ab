@@ -4,6 +4,10 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended by [the issue #5053 amendment](#amendment-issue-5053-a-red-post-force-push-head-gets-a-fix-pass)
+> below:** a red post-force-push CI re-wait now gets a fix pass instead of
+> settling `Failed` immediately.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -128,3 +132,46 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+Issue #5053 showed the gap: an agent conflict-resolve Box force-pushed the
+head, the post-force-push CI re-wait went red on `flakemodule-equivalence`,
+and the issue settled `landing-failed` 13s later with no fix pass, although
+red CI before the merge gets up to `MAX_FIX_ATTEMPTS` of them.
+
+When `immediate` Landing force-pushes a head (clean rebase-retry, stale-base
+preflight rebase, or conflict-resolve Box) and the re-wait ends red,
+`selfHealGate` now dispatches the existing red-CI fix pass. It draws from the
+same `MAX_FIX_ATTEMPTS` budget as the pre-merge loop: one budget across the
+whole landing, not a fresh allowance per force-push. A head the fix pass
+turns green re-enters the merge path exactly like a first-green head: merge
+guard, tuning hold, and `mergeImmediate`'s fresh rebase-retry and
+conflict-resolve budgets. The comment on `landing-failed` names both
+figures: the passes the force-pushed head consumed, and the landing's total
+out of `MAX_FIX_ATTEMPTS` ("the force-pushed head consumed N fix pass(es);
+A of M used across the landing").
+
+The sentinel `errForcePushedRed` wraps `errLandingNeverGreen`; only red is
+fixable. The issue still ends `Failed` (`landing-failed`, never
+`fix-exhausted`) when the fix budget is spent — whether before the
+force-push or by the force-pushed head's own fix passes that leave it red —
+when the re-wait times out, or when the conflict-resolve dispatch or its
+outbox relay fails: a fix pass cannot repair a CI that never finished or a
+Box that never delivered a head. A timeout in the CI gate after a fix pass on
+the force-pushed head settles `gate-terminal`, exactly as a timeout after a
+pre-merge fix pass does; the `landing-failed` timeout case covers only the
+re-wait right after the force-push.
+
+`TestMergeImmediate_StaleBaseCombinedBreakBlocksMerge` still holds at the
+`mergeImmediate` level: the stale-green head is still blocked from merging.
+What changed is that `selfHealGate` answers that red with a fix pass rather
+than settling at once. Covered by
+`TestSelfHeal_RedAfterForcePush_FixPassThenMerges`,
+`TestSelfHeal_RedAfterStaleBasePreflight_FixPassThenMerges`,
+`TestSelfHeal_RedAfterConflictResolveBox_FixPassThenMerges`,
+`TestSelfHeal_RedAfterForcePush_FixPassStillRed_EndsLandingFailed`,
+`TestSelfHeal_RedAfterForcePush_SharedBudgetExhausted_EndsFailed`,
+`TestSelfHeal_RedAfterForcePush_PartlySpentBudget_CountsHeadPasses`, and
+`TestSelfHeal_NonRedLandingFailures_SpendNoFixPass` in
+`cmd/launcher/internal/settle/fix_test.go`.
