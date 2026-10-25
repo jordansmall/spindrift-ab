@@ -128,3 +128,31 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets the fix pass first
+
+The rule above, that a force-pushed head which never re-confirms green ends
+`Failed`, was too blunt for a head that went red rather than silent: a
+conflict-resolve force-push that broke a check settled `landing-failed`
+seconds later, with the existing red-CI fix pass never tried.
+
+- A post-force-push re-wait that ends **red** (after the preflight rebase, a
+  rebase-retry, or a conflict-resolve Box) now dispatches the same fix pass
+  `selfHealGate` runs before merge (`runFixPass` in
+  `internal/settle/ready.go`). It draws from the **same** `MAX_FIX_ATTEMPTS`
+  budget as the pre-merge loop, not a fresh allowance per force-push, so a
+  PR cannot loop between force-push and fix pass past that cap.
+- A head the fix pass turns green re-enters the merge path exactly as a
+  first-green head does, with fresh rebase-retry and conflict-resolve
+  budgets; the shared fix budget is what bounds the cycle.
+- The issue still ends `Failed`/`landing-failed` when the budget is spent at
+  the re-wait (the comment names the fix passes used), when the re-wait
+  **times out**, or when the conflict-resolve dispatch or its outbox relay
+  fails. A head still red after a post-force-push fix pass settles
+  `fix-exhausted` as the pre-merge loop does. A timeout or a failed dispatch
+  says nothing a fix pass could act on, so those get none.
+- Mechanically, `rewaitGateResultErr` marks the red outcome with
+  `errForcePushRed` alongside `errLandingNeverGreen`; `selfHealGate`
+  catches it from `applyMergeMode`, runs the fix pass, and loops back to the
+  gate. Callers without a fix budget (`mergeImmediate` with no `Dispatcher`)
+  still see `errLandingNeverGreen`.
