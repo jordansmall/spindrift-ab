@@ -2,6 +2,7 @@ package settle
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -552,5 +553,156 @@ func TestSelfHeal_CleanFixPassRecordsNothing(t *testing.T) {
 
 	if len(d.RecordedWarnings) != 0 {
 		t.Errorf("RecordedWarnings = %q, want none", d.RecordedWarnings)
+	}
+}
+
+// A red re-wait after a force-push is a genuine red head, so it draws the same
+// MaxFixAttempts budget as a pre-merge red: one fix pass turns the head green,
+// and the landing re-enters the merge path as a first-green head.
+func TestSelfHeal_ForcePushRedFixPassThenGreenMerges(t *testing.T) {
+	c := fixConfig(1)
+	c.MaxRebaseAttempts = 3
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StateSuccess, forge.StateSuccess, // initial gateToGreen
+		forge.StateFailure,                     // post-force-push re-wait: genuine red
+		forge.StateSuccess, forge.StateSuccess, // fix-pass head goes green
+	})
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+	if landing != landingMerged {
+		t.Errorf("selfHeal = %v (reason %q), want landingMerged after one fix pass", landing, reason)
+	}
+	if passes := fixPasses(d); len(passes) != 1 || passes[0] != 1 {
+		t.Errorf("expected exactly fix-pass-1, got %v", passes)
+	}
+	if len(fc.TransitionStateCalls) == 0 {
+		t.Fatal("expected TransitionState call (Complete)")
+	}
+	if last := fc.TransitionStateCalls[len(fc.TransitionStateCalls)-1]; last.To != forge.Complete {
+		t.Errorf("last transition To=%v, want Complete", last.To)
+	}
+}
+
+// A post-force-push red draws the same MaxFixAttempts budget as a pre-merge red.
+// With none left it settles Failed, and the failure comment names the fix passes
+// the landing spent.
+func TestSelfHeal_ForcePushRedBudgetExhausted_EndsFailed(t *testing.T) {
+	cases := []struct {
+		name        string
+		maxFix      int
+		checkStates []forge.RollupState
+		wantPasses  int
+	}{
+		{
+			name:        "no fix budget configured",
+			maxFix:      0,
+			checkStates: []forge.RollupState{forge.StateSuccess, forge.StateSuccess, forge.StateFailure},
+			wantPasses:  0,
+		},
+		{
+			name:   "pre-merge red spent the only fix pass",
+			maxFix: 1,
+			checkStates: []forge.RollupState{
+				forge.StateFailure,                     // pre-merge red: fix pass 1
+				forge.StateSuccess, forge.StateSuccess, // fixed head goes green
+				forge.StateFailure, // post-force-push red, budget spent
+			},
+			wantPasses: 1,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixConfig(tc.maxFix)
+			c.MaxRebaseAttempts = 3
+			fc := forge.NewFake(testDispatchLabels)
+			fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+			fc.MergeErrs = []error{forge.ErrMergeConflict}
+			fc.SetCheckStates(testPR, tc.checkStates)
+			s := newTestSettle(c, fc, fc)
+			d := dispatch.NewFake()
+
+			landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+			if landing != landingFailed {
+				t.Errorf("selfHeal = %v, want landingFailed", landing)
+			}
+			if !strings.Contains(reason, errLandingNeverGreen.Error()) {
+				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, errLandingNeverGreen.Error())
+			}
+			if got := len(fixPasses(d)); got != tc.wantPasses {
+				t.Errorf("fix passes = %d, want %d", got, tc.wantPasses)
+			}
+			want := fmt.Sprintf("fix passes used: %d of %d", tc.wantPasses, tc.maxFix)
+			if len(fc.CommentCalls) == 0 || !strings.Contains(fc.CommentCalls[len(fc.CommentCalls)-1].Body, want) {
+				t.Errorf("last comment does not contain %q; comments=%v", want, fc.CommentCalls)
+			}
+			if len(fc.TransitionStateCalls) == 0 {
+				t.Fatal("expected TransitionState call for Failed")
+			}
+			if last := fc.TransitionStateCalls[len(fc.TransitionStateCalls)-1]; last.To != forge.Failed {
+				t.Errorf("last transition To=%v, want Failed", last.To)
+			}
+		})
+	}
+}
+
+// A never-green landing that is not a red head the fix Box can act on (a
+// re-wait timeout, or a failed conflict-resolve dispatch or relay) must not
+// spend MaxFixAttempts: it settles Failed with no fix pass dispatched.
+func TestSelfHeal_PlainNeverGreenDrawsNoFixPass(t *testing.T) {
+	cases := []struct {
+		name        string
+		pollTimeout int
+		resolveErr  error
+		relayErr    error
+	}{
+		{name: "re-wait times out", pollTimeout: 0},
+		{name: "conflict-resolve dispatch fails", pollTimeout: 100, resolveErr: errors.New("conflict box crashed")},
+		{name: "conflict-resolve relay fails", pollTimeout: 100, relayErr: errors.New("ssh auth blip")},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixConfig(2)
+			c.MaxRebaseAttempts = 3
+			c.MergePollTimeout = tc.pollTimeout
+			c.OutboxDir = func(num string) string { return "/outbox/" + num }
+			fc := forge.NewFake(testDispatchLabels)
+			fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+			fc.MergeErrs = []error{forge.ErrMergeConflict}
+			fc.RebaseErr = forge.ErrMergeConflict
+			fc.RelayBundleErr = tc.relayErr
+			fc.SetCheckStates(testPR, []forge.RollupState{forge.StateSuccess, forge.StateSuccess})
+			var cf forge.CodeForge = fc
+			if tc.relayErr != nil {
+				cf = fc.AsGithubReadOnly()
+			}
+			s := newTestSettle(c, fc, cf)
+			d := dispatch.NewFake()
+			d.ResolveConflictErr = tc.resolveErr
+
+			landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+			if landing != landingFailed {
+				t.Errorf("selfHeal = %v, want landingFailed", landing)
+			}
+			if !strings.Contains(reason, errLandingNeverGreen.Error()) {
+				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, errLandingNeverGreen.Error())
+			}
+			if passes := fixPasses(d); len(passes) != 0 {
+				t.Errorf("fix passes = %v, want none", passes)
+			}
+			want := "fix passes used: 0 of 2"
+			if len(fc.CommentCalls) == 0 || !strings.Contains(fc.CommentCalls[len(fc.CommentCalls)-1].Body, want) {
+				t.Errorf("last comment does not contain %q; comments=%v", want, fc.CommentCalls)
+			}
+		})
 	}
 }
