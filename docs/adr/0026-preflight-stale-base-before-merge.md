@@ -4,6 +4,10 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended by issue #5053:** a CI failure on the rebased tree is no longer
+> demoted on the spot; the post-force-push re-wait gets a red-CI fix pass
+> first. See the amendment at the end of this file.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -128,3 +132,44 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push re-wait gets a fix pass
+
+Issue #5053's landing failed this way: an agent conflict-resolve Box
+force-pushed a resolved head, the post-force-push CI re-wait came back red,
+and the issue settled `landing-failed` thirteen seconds later with no fix
+pass. The head was a fresh, never-green tree, exactly the case the red-CI
+fix pass exists for.
+
+Under `MERGE_MODE=immediate`, when a force-push (a clean rebase-retry, this
+ADR's stale-base preflight rebase, or a conflict-resolve Box) is followed by
+a re-wait that ends red, the host now dispatches the existing red-CI fix pass
+instead of settling `Failed`. A head the fix pass turns green re-enters the
+merge path exactly as a first-green head does: ready flip, merge guard,
+tuning hold, then `mergeImmediate` with its own rebase-retry and
+conflict-resolve budgets, which are per merge-path entry and so fresh on each
+re-entry.
+
+The fix pass draws from the same `MAX_FIX_ATTEMPTS` budget as the pre-merge
+red-CI loop: one shared count per settle, not a fresh allowance per
+force-push. A fresh allowance would let every rebase re-arm the fix loop, and
+since a fix pass can itself lead to another conflict and another force-push,
+the settle would have no bound. Sharing the count keeps the number of fix
+Boxes at `MAX_FIX_ATTEMPTS` however the reds are distributed between the
+first gate and later force-pushed heads.
+
+This supersedes the statement in Decision that a CI failure on the rebased
+tree "now demotes the same way a genuine red gate result always has", and the
+Consequences entry on a stale-base conflict whose failed re-wait blocks the
+merge outright (`TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`),
+insofar as both treat a red re-wait as immediately terminal. They hold only
+once the shared fix budget is spent.
+
+The issue still ends `Failed` with reason `landing-failed` when the fix
+budget is exhausted (including `MAX_FIX_ATTEMPTS=0`), when the re-wait times
+out, or when the conflict-resolve dispatch or its outbox relay itself fails;
+the last two dispatch no fix pass. On exhaustion the failure comment names
+how many fix passes the force-pushed head consumed and how many of
+`MAX_FIX_ATTEMPTS` were used in total. Fix-failed, fix-no-op, and
+token/USD budget exhaustion keep their own reasons, as does a gate timeout
+(`gate-terminal`) on a head a fix pass pushed.

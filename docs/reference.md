@@ -6632,21 +6632,27 @@ stopping is not the slowest in-flight Box's runtime alone but that runtime
 *plus* its whole settle, and a settle is not a single CI wait. Every CI wait
 inside a settle takes a *fresh* `MERGE_POLL_TIMEOUT` deadline (default `3600`
 seconds — see [Advanced tuning](#advanced-tuning)), and one settle can
-enter several: one wait per self-heal attempt, so `MAX_FIX_ATTEMPTS`
-(default `3`) red gates cost four waits in all, plus one more after every
-force-push, since a rebase resets the PR's required checks and the
-launcher re-waits for green on the new head — once per
-`MAX_REBASE_ATTEMPTS` (default `3`) conflict pass, and once more when
+enter several: one wait per self-heal attempt, so at most
+`MAX_FIX_ATTEMPTS + 1` (default `4`) gate waits, the first gate plus one per
+fix pass, plus one more after every force-push, since a rebase resets the PR's required checks
+and the launcher re-waits for green on the new head. A fix pass that turns a
+force-pushed head green re-enters the merge path with fresh rebase budgets
+(issue #5053), so the merge path can be entered once per green gate, at
+most `MAX_FIX_ATTEMPTS + 1` times, and each entry adds up to
+`MAX_REBASE_ATTEMPTS` (default `3`) post-force-push re-waits, one more when
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
-`MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
-defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
-cannot resolve also dispatches its own Box — up to three fix Boxes and up
-to three conflict-resolve Boxes, or four with the stale-base preflight
-enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
-that confirms green on its first poll and merges adds only seconds to the
-Box's runtime. The one-shot wave has no refill loop to stop — its batch is
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 1)` poll windows: sixteen
+at the defaults, about sixteen hours of polling alone, or
+`(MAX_FIX_ATTEMPTS + 1) × (MAX_REBASE_ATTEMPTS + 2)` = twenty windows with
+the stale-base preflight enabled. Each red gate and each conflict a rebase
+cannot resolve also dispatches its own Box. Fix Boxes stay at most
+`MAX_FIX_ATTEMPTS` (three) per settle, because force-pushed heads share
+that budget, but conflict-resolve Boxes run up to `MAX_REBASE_ATTEMPTS` per
+merge-path entry, one more per entry with the stale-base preflight (which
+keeps its own retry budget): up to twelve at the defaults, sixteen with the
+preflight. Those runtimes land on top of the polling. The floor is the other
+end of the same range: a settle that confirms green on its first poll and
+merges adds only seconds to the Box's runtime. The one-shot wave has no refill loop to stop — its batch is
 fixed up front — so there the first signal simply means launch nothing
 further from that batch while whatever is already running finishes and
 settles. The launcher prints a line when a drain begins, so an operator can

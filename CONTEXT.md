@@ -739,9 +739,11 @@ the launch button) → `InProgress` (a Box has been dispatched; re-runs skip it)
 a merged/handed-off PR on `github`, a landed branch when the Code Forge is
 push-only/absent, or a posted verdict for a research dispatch) or `Failed`
 (the Box crashed, never reached green past MAX_FIX_ATTEMPTS, or — on `github`
-— a force-pushed head from rebase-retry or an agent conflict-resolve box never
-re-confirmed green; human triage, re-transition to retry). Each Issue Tracker
-adapter maps these states to its native mechanism:
+— a force-pushed head from rebase-retry or an agent conflict-resolve box could
+not be re-confirmed green: its re-wait timed out, its conflict-resolve
+dispatch or relay failed, or it stayed red past the shared fix budget; human
+triage, re-transition to retry). Each Issue Tracker adapter maps these states
+to its native mechanism:
 
 - `github` — labels (`ready-for-agent` → `agent-in-progress` →
   `agent-complete`/`agent-failed`), swapped atomically. This is the original,
@@ -767,10 +769,16 @@ updates a clean checked-out branch); `manual` (default) leaves the branch/PR
 for a human; `auto` is the forge's native auto-merge — meaningful on any
 `PRForge` backend (`github`, `forgejo`). A merge failure after green leaves the
 issue `Complete` with a merge-blocked note — never `Failed` — once that landing
-attempt settles, except when the post-force-push re-wait (after rebase or
-conflict-resolve) ends red or times out, or the conflict-resolve dispatch
-itself fails: there the force-pushed head never went green, so the issue ends
-`Failed` instead.
+attempt settles, except when a force-pushed head never goes green. A
+post-force-push re-wait (after rebase or conflict-resolve) that ends red gets
+the red-CI fix pass first, drawing on the same MAX_FIX_ATTEMPTS budget as the
+pre-merge loop (one count per settle, not a fresh allowance per force-push);
+a head the fix pass turns green re-enters the merge path like a first-green
+head (issue #5053). The issue ends `Failed` with `landing-failed` when that
+budget is exhausted, the re-wait times out, or the conflict-resolve dispatch
+or its relay fails; the fix pass's own failures (a crash, a no-op, a
+token/USD budget stop, or a gate timeout on the head it pushed) keep the
+pre-merge loop's reasons.
 _Was_: "Label lifecycle" — labels were GitHub's storage mechanism, mistaken for
 the states themselves.
 _Avoid_: status, queue, state machine.
