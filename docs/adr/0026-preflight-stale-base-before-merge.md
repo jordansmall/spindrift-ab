@@ -3,6 +3,11 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended by issue #5053:** a CI failure on the rebased tree no longer fails
+> the landing outright — like any post-force-push red, it first gets the
+> ordinary red-CI fix pass, drawn from the same `MAX_FIX_ATTEMPTS` budget as
+> the pre-merge loop, and demotes only once that budget is spent.
 
 ## Context
 
@@ -72,9 +77,10 @@ and reports `behind_by > 0`.
 `Merge` attempt. On a hit, the launcher proactively rebases the branch and
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
-before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
+before the merge can complete. A CI failure on that rebased tree gets a fix
+pass from the shared fix budget, as a genuine red gate result always has, and
+demotes once that budget is spent; a clean rebase proceeds to merge as
+before. The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)

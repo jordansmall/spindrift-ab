@@ -23,8 +23,11 @@ var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns
 
 // errLandingNeverGreen marks a force-pushed head that never reached green. A
 // merge failure on an already-green PR leaves the issue agent-complete (ADR
-// 0012); here no green PR exists at the current head, so selfHeal demotes to
-// agent-failed instead (issue #758).
+// 0012); here no green PR exists at the current head (issue #758). Red CI
+// first gets a fix pass from the shared fix budget (see
+// errForcePushedHeadRed); selfHeal demotes to agent-failed once that budget
+// is spent, on a re-wait timeout, or on a conflict-resolve dispatch or relay
+// failure.
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
 
 // errForcePushedHeadRed marks a post-force-push re-wait that ended in genuine

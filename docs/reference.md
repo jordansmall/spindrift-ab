@@ -6640,7 +6640,11 @@ launcher re-waits for green on the new head — once per
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
 defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
+stale-base preflight enabled. That ceiling holds while every fix pass
+precedes the first merge attempt; a fix pass spent on a red post-force-push
+head sends the fixed head back through the merge path with fresh rebase
+budgets, so each such pass can add that many rebase windows and
+conflict-resolve Boxes again. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
@@ -8304,9 +8308,11 @@ not the Box runtime alone and not the Box runtime plus a single
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
 windows — seven of them, about seven hours of polling, or eight with the
 stale-base preflight enabled — plus the runtimes of up to three fix Boxes
-and up to three conflict-resolve Boxes, or four with that same preflight;
-see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
-for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
+and up to three conflict-resolve Boxes, or four with that same preflight,
+plus a full set of rebase windows and conflict-resolve Boxes again for each
+fix pass spent on a red force-pushed head; see the signalled-stop drain
+under [Dispatch exit codes](#dispatch-exit-codes) for the breakdown.
+systemd's own default `TimeoutStopSec` is `90` seconds, far
 below even the floor, so leaving it at the default means `SIGKILL` lands
 mid-drain — the exact stranding (orphaned Boxes, a leaked registry-proxy
 socket, an issue stuck on the in-progress label) this whole drain exists
