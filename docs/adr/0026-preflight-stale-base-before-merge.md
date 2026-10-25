@@ -128,3 +128,19 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push re-wait takes a fix pass
+
+The stale-base preflight, rebase-retry, and conflict-resolve all force-push
+and then re-wait for CI, and the re-wait shares one rule. When that re-wait ends
+red, `selfHealGate` dispatches the existing red-CI fix pass
+instead of settling `Failed`. That fix pass draws from the same
+`MAX_FIX_ATTEMPTS` budget (one shared `attempt` counter) as the pre-merge red-CI
+loop, never a fresh allowance per force-push. A head the fix pass turns green
+re-enters the merge path exactly as a first-green head does, so the rebase-retry
+and conflict-resolve budgets apply again. The issue still ends `Failed` when the
+fix budget is exhausted, the re-wait times out, or the conflict-resolve dispatch
+or its outbox relay fails. The landing-failed comment names how many fix passes
+were used ("N of M fix pass(es) used"). Parent incident: #5053, where a
+conflict-resolve force-push went red on flakemodule-equivalence and settled
+landing-failed 13s later with no fix pass.

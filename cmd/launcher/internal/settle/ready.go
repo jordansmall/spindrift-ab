@@ -21,10 +21,11 @@ import (
 // on an issue whose state another actor owns.
 var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns the issue)")
 
-// errLandingNeverGreen marks a force-pushed head that never reached green. A
-// merge failure on an already-green PR leaves the issue agent-complete (ADR
-// 0012); here no green PR exists at the current head, so selfHeal demotes to
-// agent-failed instead (issue #758).
+// errLandingNeverGreen marks a force-pushed head that never reached green: the
+// shared fix budget ran out after a red re-wait, the re-wait timed out, or the
+// conflict-resolve dispatch or relay failed. A merge failure on an already-green
+// PR leaves the issue agent-complete (ADR 0012); here no green PR exists at the
+// current head, so selfHeal demotes to agent-failed instead (issue #758).
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
 
 // errForcePushedRed marks a never-green re-wait that ended on genuine red CI,
@@ -36,7 +37,8 @@ var errForcePushedRed = errors.New("CI red after force-push")
 // MaxFixAttempts times, then applies the merge mode. It swaps agent-complete
 // only once the landing path settles (issue #757). A merge failure on a
 // still-green PR stays agent-complete (ADR 0012), but a force-pushed head that
-// never re-confirms green demotes to agent-failed instead (issue #758).
+// never re-confirms green (errLandingNeverGreen) demotes to agent-failed instead
+// (issue #758).
 func (s *Settle) selfHeal(d dispatch.Dispatcher, num string, gen uint64, pr string) (landingResult, string) {
 	return s.selfHealGate(d, num, gen, pr, false)
 }
