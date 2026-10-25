@@ -128,3 +128,22 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red rebased tree gets fix passes before it fails
+
+The Decision's "demotes the same way a genuine red gate result always has"
+used to mean the issue settled `Failed` with `landing-failed` the moment the
+post-rebase CI re-wait ended red. A red re-wait on any force-pushed head — this
+preflight rebase, a reactive rebase-retry, or a conflict-resolve Box's push —
+now dispatches the red-CI fix pass first, drawing from the same
+`MAX_FIX_ATTEMPTS` counter as the pre-merge loop rather than a fresh
+allowance. A head the fix pass turns green re-enters the merge path as a
+first-green head does, with fresh rebase-retry and conflict-resolve budgets.
+The issue still ends `Failed` with `landing-failed` once that budget is spent
+(the comment names how many fix passes the force-pushed head consumed), or
+when the re-wait times out or the conflict-resolve dispatch or its relay
+fails. Once a fix pass has run, the gate after it is the ordinary pre-merge
+gate, so a timeout there settles `gate-terminal` and a pass that commits
+nothing settles with its own reason, exactly as in the pre-merge loop —
+`landing-failed` names only the spent budget and the force-push failures
+above.
