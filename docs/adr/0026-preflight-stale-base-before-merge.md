@@ -3,6 +3,11 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended (issue #5053):** a red CI result on the rebased tree no longer
+> demotes on the spot; it dispatches a fix pass. See the
+> [amendment](#amendment-issue-5053-a-red-force-pushed-head-gets-a-fix-pass)
+> below.
 
 ## Context
 
@@ -128,3 +133,17 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+A CI failure on a force-pushed head — after the preflight rebase above, a
+clean reactive rebase-retry, or an agent-dispatched conflict-resolve Box — no
+longer settles `Failed` on the spot. The post-force-push re-wait's red result
+hands the head to the same red-CI fix pass a pre-merge red gets, drawing on
+the same `MAX_FIX_ATTEMPTS` budget rather than a fresh allowance per
+force-push, so a run cannot loop rebase and fix indefinitely. A head the fix
+pass turns green re-enters the merge path as a first-green head does, with
+fresh rebase-retry and conflict-resolve budgets. The issue still ends
+`Failed` with `landing-failed` when the fix budget is already spent (the
+comment names the fix passes used), when the re-wait times out, or when the
+conflict-resolve dispatch or its outbox relay fails.
