@@ -284,6 +284,8 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 		resolveErr  error
 		pollTimeout int
 		checkStates []forge.RollupState
+		// wantComment, when set, is a substring the landing-failed comment must carry.
+		wantComment string
 	}{
 		{
 			name: "rewait after a plain rebase ends genuine red",
@@ -295,6 +297,7 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 				forge.StateSuccess, forge.StateSuccess, // initial gateToGreen
 				forge.StateFailure, // rewait's gateToGreen: genuine red
 			},
+			wantComment: "still red after 0 of 0 fix pass(es)",
 		},
 		{
 			name: "rewait after conflict-resolve times out",
@@ -331,12 +334,64 @@ func TestSelfHeal_RewaitAfterForcePush_NeverGreen_EndsFailed(t *testing.T) {
 			if !strings.Contains(reason, errLandingNeverGreen.Error()) {
 				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, errLandingNeverGreen.Error())
 			}
+			if tc.wantComment != "" {
+				if len(fc.CommentCalls) != 1 || !strings.Contains(fc.CommentCalls[0].Body, tc.wantComment) {
+					t.Errorf("want one landing-failed comment containing %q, got %+v", tc.wantComment, fc.CommentCalls)
+				}
+			}
 			iss, _ := fc.Issue("1")
 			if !containsLabel(iss.Labels, "agent-failed") {
 				t.Errorf("issue must carry agent-failed; labels=%v", iss.Labels)
 			}
 			if containsLabel(iss.Labels, "agent-complete") {
 				t.Errorf("issue must NOT carry agent-complete; labels=%v", iss.Labels)
+			}
+		})
+	}
+}
+
+// Only a red re-wait is rerouted to a fix pass. A re-wait that times out, or a
+// conflict-resolve that fails to dispatch, stays Failed even with fix budget
+// left (issue #758).
+func TestSelfHeal_ForcePushTerminal_NoFixPassWithBudget(t *testing.T) {
+	cases := []struct {
+		name       string
+		rebaseErr  error
+		resolveErr error
+	}{
+		{name: "rewait times out after plain rebase", rebaseErr: nil},
+		{name: "conflict-resolve dispatch fails", rebaseErr: forge.ErrMergeConflict, resolveErr: errors.New("conflict-resolve box exited 1")},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixConfig(3)
+			c.MergeMode = "immediate"
+			c.MaxRebaseAttempts = 3
+			c.MergePollTimeout = 0
+			fc := forge.NewFake(testDispatchLabels)
+			fc.SetIssue(forge.Issue{Number: "1", Labels: []string{"agent-in-progress"}})
+			fc.MergeErrs = []error{forge.ErrMergeConflict}
+			fc.RebaseErr = tc.rebaseErr
+			fc.SetCheckStates(testPR, []forge.RollupState{forge.StateSuccess, forge.StateSuccess})
+			s := newTestSettle(c, fc, fc)
+			d := dispatch.NewFake()
+			d.ResolveConflictErr = tc.resolveErr
+
+			landing, reason := s.selfHeal(d, "1", 0, testPR)
+
+			if landing != landingFailed {
+				t.Errorf("selfHeal = %v, want landingFailed", landing)
+			}
+			if len(d.FixCalls) != 0 {
+				t.Errorf("expected no fix pass for a non-red force-push failure, got %+v", d.FixCalls)
+			}
+			if !strings.Contains(reason, errLandingNeverGreen.Error()) {
+				t.Errorf("selfHeal reason = %q, want a substring containing %q", reason, errLandingNeverGreen.Error())
+			}
+			iss, _ := fc.Issue("1")
+			if !containsLabel(iss.Labels, "agent-failed") {
+				t.Errorf("issue must carry agent-failed; labels=%v", iss.Labels)
 			}
 		})
 	}
@@ -355,7 +410,7 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 		{name: "green", g: gateGreen, wantNil: true},
 		{name: "abandoned", g: gateAbandoned, wantErr: errAbandoned},
 		{name: "terminal", g: gateTerminal, wantErr: errLandingNeverGreen},
-		{name: "red-retry", g: gateRedRetry, wantErr: errLandingNeverGreen},
+		{name: "red-retry", g: gateRedRetry, wantErr: errForcePushRed},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -369,6 +424,12 @@ func TestRewaitGateResultErr_ExplicitCases(t *testing.T) {
 			}
 			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("rewaitGateResultErr(%v) = %v, want wrapping %v", tc.g, err, tc.wantErr)
+			}
+			if (tc.g == gateTerminal || tc.g == gateRedRetry) && !errors.Is(err, errLandingNeverGreen) {
+				t.Errorf("rewaitGateResultErr(%v) = %v, want wrapping errLandingNeverGreen", tc.g, err)
+			}
+			if tc.g == gateTerminal && errors.Is(err, errForcePushRed) {
+				t.Errorf("rewaitGateResultErr(gateTerminal) = %v, must not match errForcePushRed", err)
 			}
 		})
 	}

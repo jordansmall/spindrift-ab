@@ -106,6 +106,44 @@ func TestSettleAdopted_UnclaimedGateTerminalComments(t *testing.T) {
 	}
 }
 
+// An unclaimed force-pushed head whose re-wait goes red must still leave a
+// comment trail: no label records the failure, so the comment is the only
+// record. selfHealGate comments unconditionally on this arm, so there is
+// exactly one comment, not one per branch.
+func TestSettleAdopted_UnclaimedForcePushRedComments(t *testing.T) {
+	c := baseConfig()
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 1
+	c.MaxFixAttempts = 0
+	c.Unclaimed = true
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: append([]string{}, butlerPatchLabels...)})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	// Green pre-merge (Pending first, so the registration guard clears), then
+	// the merge conflicts and the rebase force-pushes a head whose re-wait is red.
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StatePending, forge.StateSuccess, forge.StateSuccess,
+		forge.StateFailure,
+	})
+	s := newTestSettle(c, fc, fc)
+
+	s.SettleAdopted(nil, "1", 0, testPR)
+
+	if fc.Merged != "" {
+		t.Errorf("expected no merge on a red force-pushed head; fc.Merged=%q", fc.Merged)
+	}
+	if len(fc.TransitionStateCalls) != 0 {
+		t.Errorf("expected no TransitionState calls on an unclaimed issue; got %+v", fc.TransitionStateCalls)
+	}
+	if len(fc.CommentCalls) != 1 || !strings.Contains(fc.CommentCalls[0].Body, "0 of 0 fix pass(es)") {
+		t.Fatalf("want exactly one comment naming %q, got %+v", "0 of 0 fix pass(es)", fc.CommentCalls)
+	}
+	iss, _ := fc.Issue("1")
+	if containsLabel(iss.Labels, "agent-failed") {
+		t.Errorf("issue must NOT carry agent-failed on an unclaimed force-push red; labels=%v", iss.Labels)
+	}
+}
+
 // A green gate on an unclaimed PR under MERGE_MODE=immediate still merges and
 // completes the issue (issue #4076): Complete is the one transition an
 // unclaimed issue does commit, since it reflects the PR having actually
