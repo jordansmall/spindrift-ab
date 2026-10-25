@@ -4,6 +4,20 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+*Amended by issue #5053's follow-up:* a red CI result on a force-pushed
+head — the preflight rebase below, a reactive rebase-retry, or an
+agent-dispatched conflict-resolve Box — no longer demotes straight to
+`agent-failed`. It dispatches the ordinary red-CI fix pass, drawn from the
+same `MAX_FIX_ATTEMPTS` budget as the pre-merge fix loop rather than a fresh
+allowance per force-push, and a head the fix pass turns green re-enters the
+merge path as a first-green head does. The issue still ends `agent-failed`
+(`landing-failed`) when that budget is exhausted, the re-wait times out, or
+the conflict-resolve dispatch or its outbox relay fails, and the comment
+names how many fix passes the force-pushed head(s) consumed. #5053 itself
+landed this way: its conflict-resolve force-push went red and settled
+`landing-failed` with no fix pass, though a fix pass was exactly the
+remedy a red head earns anywhere else in the merge gate.
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
