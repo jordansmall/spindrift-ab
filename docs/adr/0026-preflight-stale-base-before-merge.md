@@ -4,6 +4,12 @@
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
 
+> **Amended by issue #5053:** a CI re-wait that ends red after any `immediate`
+> force-push — this preflight's rebase included — now gets the red-CI fix pass
+> before the issue can fail. See [Amendment (issue #5053): a red force-pushed
+> head gets the fix
+> pass](#amendment-issue-5053-a-red-force-pushed-head-gets-the-fix-pass).
+
 ## Context
 
 #670 and #672 merged roughly 90 seconds apart. `f8d9e9b` (#670) deleted the
@@ -128,3 +134,23 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets the fix pass
+
+Issue #5053. A red CI re-wait after a force-push used to settle the issue
+`Failed` (`landing-failed`) on the spot, with no fix pass — unlike a red gate
+before merging, which dispatches one. A conflict-resolve force-push that went
+red on `flakemodule-equivalence` settled `landing-failed` 13 seconds later,
+its fix budget untouched.
+
+Now a red re-wait after any `immediate` force-push — this preflight's
+stale-base rebase, a reactive rebase-retry, or an agent conflict-resolve
+Box — dispatches the same red-CI fix pass the pre-merge loop does. It draws
+on the same `MAX_FIX_ATTEMPTS` count, not a fresh allowance per force-push,
+so that one knob still bounds the fix Boxes an issue can cost. A head the
+fix pass turns green re-enters the merge path exactly like a first-green
+head, this preflight and fresh rebase budgets included. The issue still ends
+`Failed` with `landing-failed` when the fix budget is spent (the comment
+names the fix attempts used), when the re-wait times out or its check-state
+read errors, or when a conflict-resolve dispatch or its outbox relay fails —
+none of which leaves a red head a fix Box could repair.
