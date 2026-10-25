@@ -73,8 +73,9 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
+the same way a genuine red gate result always has (amended by issue #5053:
+after a fix pass from the shared budget — see the Amendment below); a clean
+rebase proceeds to merge as before. The preflight rebase draws its own attempt budget off
 `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
@@ -128,3 +129,23 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets a fix pass
+
+A conflict-resolve force-push went red on a required check and the issue
+settled `landing-failed` seconds later with no fix pass, although the budget
+for one was untouched. A force-pushed head — from the preflight rebase, a
+rebase-retry, or a conflict-resolve Box — whose CI re-wait ends red now
+dispatches the existing red-CI fix pass instead. The pass draws from the same
+`MAX_FIX_ATTEMPTS` budget as the pre-merge loop, not a fresh allowance per
+force-push, and a head it turns green re-enters the merge path like a
+first-green head, with fresh rebase and conflict-resolve budgets.
+
+The issue still ends `Failed` (`landing-failed`) when that budget is spent, the
+re-wait times out, or the conflict-resolve dispatch or its outbox relay fails;
+none of the last three dispatches a fix pass. The failure comment names the
+fix passes the force-pushed head consumed, next to the shared-budget total.
+"Fix budget" means `MAX_FIX_ATTEMPTS` only: a fix pass on a force-pushed head
+that fails, hits the `MAX_BUDGET_TOKENS` or `MAX_BUDGET_USD` cap, or times out
+its gate wait settles with its own reason (`fix-failed`, `budget-exhausted`,
+`gate-terminal`), not `landing-failed`.
