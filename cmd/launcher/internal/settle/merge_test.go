@@ -518,6 +518,9 @@ func TestMergeImmediate_RewaitGenuineRedNotTreatedAsConflict(t *testing.T) {
 	if errors.Is(err, forge.ErrMergeConflict) {
 		t.Errorf("genuine CI red after force-push must not surface as forge.ErrMergeConflict; got %v", err)
 	}
+	if !errors.Is(err, errForcePushedRed) {
+		t.Errorf("genuine CI red after force-push must wrap errForcePushedRed so selfHeal dispatches a fix pass; got %v", err)
+	}
 	if fc.Merged != "" {
 		t.Errorf("Merge must not succeed after genuine CI red; fc.Merged=%q", fc.Merged)
 	}
@@ -950,6 +953,9 @@ func TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge(t *testing.T)
 	if !errors.Is(err, errLandingNeverGreen) {
 		t.Errorf("mergeImmediate err=%v, want wrapped errLandingNeverGreen", err)
 	}
+	if errors.Is(err, errForcePushedRed) {
+		t.Errorf("mergeImmediate err=%v: a failed conflict-resolve dispatch is no red head and must not wrap errForcePushedRed", err)
+	}
 	if len(df.ResolveConflictCalls) != 1 {
 		t.Errorf("ResolveConflict called %d times, want 1", len(df.ResolveConflictCalls))
 	}
@@ -981,6 +987,9 @@ func TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge(t *testin
 	}
 	if errors.Is(err, forge.ErrMergeConflict) {
 		t.Errorf("mergeImmediate err=%v must not be a raw ErrMergeConflict — that would re-enter the reactive conflict-retry path instead of surfacing rewaitAfterForcePush's own failure", err)
+	}
+	if !errors.Is(err, errLandingNeverGreen) || errors.Is(err, errForcePushedRed) {
+		t.Errorf("mergeImmediate err=%v: a re-wait timeout must wrap errLandingNeverGreen but not errForcePushedRed", err)
 	}
 	if len(df.ResolveConflictCalls) != 1 {
 		t.Errorf("ResolveConflict called %d times, want 1", len(df.ResolveConflictCalls))
