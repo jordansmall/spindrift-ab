@@ -149,3 +149,14 @@ correctly recognized.
   global knob and out of scope here; and relabeling a GitHub-`auto`-merged issue
   from `agent-complete` is unnecessary — the merge closes the issue, and no logic
   keys on a post-merge label swap.
+
+## Amendment (issue #5053): a red post-force-push re-wait gets fix passes first
+
+A post-force-push re-wait that ends red no longer goes straight to
+`agent-failed`. It first gets fix passes from the same `MAX_FIX_ATTEMPTS`
+budget the pre-merge red-CI loop uses, and a head they turn green re-enters
+the merge path. It reaches `agent-failed` once that shared budget is spent,
+and a timed-out re-wait or a failed conflict-resolve dispatch or relay still
+ends there directly. A fix pass on that head can also end in `agent-failed`
+the way any fix pass does: when it exits non-zero, pushes nothing, or hits
+the token or USD budget cap.

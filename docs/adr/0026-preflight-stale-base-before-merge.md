@@ -3,6 +3,10 @@
 > **Amended by [ADR 0028](0028-stale-base-preflight-is-opt-in.md):** the
 > preflight described here is now opt-in via `PREFLIGHT_STALE_BASE` and **off
 > by default**. The mechanism below is unchanged; only its default changed.
+>
+> **Amended by [issue #5053](#amendment-issue-5053-a-red-rebased-head-gets-fix-passes-first):**
+> a red CI result on the rebased tree now gets fix passes before the issue
+> can end failed.
 
 ## Context
 
@@ -128,3 +132,28 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red rebased head gets fix passes first
+
+The body above says a CI failure on the rebased tree demotes the same way a
+genuine red gate result does. In practice it demoted harder: the landing path
+settled the issue `Failed` the moment the post-force-push re-wait came back
+red, with no fix pass. Issue #5053 hit exactly this, failing 13 seconds after
+a conflict-resolve force-push went red.
+
+Now a red re-wait after any force-push the landing path makes, whether this
+preflight rebase, a clean rebase-retry, or an agent conflict-resolve Box,
+dispatches the same red-CI fix pass the pre-merge loop uses. Those passes draw
+from the one `MAX_FIX_ATTEMPTS` budget the run already has, not a fresh
+allowance per force-push. A head a fix pass turns green re-enters the merge
+path exactly as a first-green head does, its rebase-retry and
+conflict-resolve budgets starting over.
+
+The issue still ends `Failed` with `landing-failed` when the fix budget is
+spent, when the re-wait times out, or when the conflict-resolve dispatch or
+its outbox relay fails. When the fix budget is spent, the failure comment
+says how many fix passes the force-pushed head used and how many of the budget
+were used in all. A fix pass on that head can also stop the issue `Failed` the
+way any fix pass does, with `fix-failed`, `fix-no-op`, or `budget-exhausted`;
+each carries its own reason class and comment, not the `landing-failed` pass
+count.
