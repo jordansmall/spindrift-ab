@@ -106,6 +106,48 @@ func TestSettleAdopted_UnclaimedGateTerminalComments(t *testing.T) {
 	}
 }
 
+// A force-pushed head that goes red on an unclaimed PR has no Failed
+// transition to commit, so the landing-failed comment is the only record of the
+// failure and must still name the fix budget (issue #5095).
+func TestSettleAdopted_UnclaimedForcePushedRedComments(t *testing.T) {
+	c := baseConfig()
+	c.MergeMode = "immediate"
+	c.MaxRebaseAttempts = 3
+	c.MaxFixAttempts = 0
+	c.Unclaimed = true
+	fc := forge.NewFake(testDispatchLabels)
+	fc.SetIssue(forge.Issue{Number: "1", Labels: append([]string{}, butlerPatchLabels...)})
+	fc.MergeErrs = []error{forge.ErrMergeConflict}
+	fc.SetCheckStates(testPR, []forge.RollupState{
+		forge.StatePending, forge.StateSuccess, forge.StateSuccess, // initial gate, registration evidence first
+		forge.StateFailure, // post-force-push re-wait
+	})
+	s := newTestSettle(c, fc, fc)
+	d := dispatch.NewFake()
+
+	s.SettleAdopted(d, "1", 0, testPR)
+
+	if fc.Merged != "" {
+		t.Errorf("expected no merge of a red force-pushed head; fc.Merged=%q", fc.Merged)
+	}
+	if len(d.FixCalls) != 0 {
+		t.Errorf("expected no fix pass on an unclaimed issue; got %v", d.FixCalls)
+	}
+	if len(fc.TransitionStateCalls) != 0 {
+		t.Errorf("expected no TransitionState calls on an unclaimed issue; got %+v", fc.TransitionStateCalls)
+	}
+	if len(fc.CommentCalls) != 1 {
+		t.Fatalf("expected exactly one failure comment, got %d: %+v", len(fc.CommentCalls), fc.CommentCalls)
+	}
+	if want := "0 of 0 fix attempt(s) used"; !strings.Contains(fc.CommentCalls[0].Body, want) {
+		t.Errorf("comment body = %q, want a substring containing %q", fc.CommentCalls[0].Body, want)
+	}
+	iss, _ := fc.Issue("1")
+	if containsLabel(iss.Labels, "agent-failed") {
+		t.Errorf("issue must NOT carry agent-failed on an unclaimed force-pushed red head; labels=%v", iss.Labels)
+	}
+}
+
 // A green gate on an unclaimed PR under MERGE_MODE=immediate still merges and
 // completes the issue (issue #4076): Complete is the one transition an
 // unclaimed issue does commit, since it reflects the PR having actually

@@ -515,6 +515,9 @@ func TestMergeImmediate_RewaitGenuineRedNotTreatedAsConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("mergeImmediate: want error when re-wait confirms genuine CI red, got nil")
 	}
+	if !errors.Is(err, errForcePushedHeadRed) || errors.Is(err, errLandingNeverGreen) {
+		t.Errorf("genuine CI red after force-push must wrap errForcePushedHeadRed only; got %v", err)
+	}
 	if errors.Is(err, forge.ErrMergeConflict) {
 		t.Errorf("genuine CI red after force-push must not surface as forge.ErrMergeConflict; got %v", err)
 	}
@@ -978,6 +981,9 @@ func TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge(t *testin
 
 	if err == nil {
 		t.Fatal("mergeImmediate: want error when the post-resolve re-wait never goes green, got nil")
+	}
+	if !errors.Is(err, errLandingNeverGreen) {
+		t.Errorf("a re-wait timeout must wrap errLandingNeverGreen; got %v", err)
 	}
 	if errors.Is(err, forge.ErrMergeConflict) {
 		t.Errorf("mergeImmediate err=%v must not be a raw ErrMergeConflict — that would re-enter the reactive conflict-retry path instead of surfacing rewaitAfterForcePush's own failure", err)
