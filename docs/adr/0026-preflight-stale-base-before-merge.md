@@ -73,9 +73,10 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
-`MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
+the same way a genuine red gate result always has (amended by issue #5053:
+it now goes to the red-CI fix pass first — see the amendment below); a
+clean rebase proceeds to merge as before. The preflight rebase draws its
+own attempt budget off `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
 exhaust an allowance the real conflict path still needed. `0` still means
@@ -128,3 +129,20 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets the fix pass
+
+Issue #5053's landing settled `landing-failed` 13 seconds after a
+conflict-resolve force-push went red, with no fix pass. A force-pushed
+head — after a clean rebase-retry, this preflight's stale-base rebase, or a
+conflict-resolve Box — whose CI re-wait ends red no longer settles `Failed`
+outright. The launcher dispatches the red-CI fix pass, drawing on the same
+`MAX_FIX_ATTEMPTS` budget the pre-merge loop uses rather than a fresh
+allowance per force-push, and a head the fix turns green re-enters the merge
+path like any first-green head, its rebase and preflight budgets included.
+The issue still ends `Failed` with `landing-failed` when that shared budget
+runs out (the comment names the fix attempts used since the first
+post-force-push red), when the re-wait times out, or when the
+conflict-resolve dispatch or its outbox relay fails
+(`TestSelfHeal_ForcePushTerminal_NoFixPass`,
+`TestSelfHeal_PreflightRebaseRed_FixPassThenMerges`).
