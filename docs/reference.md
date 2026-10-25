@@ -6644,9 +6644,14 @@ stale-base preflight enabled. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
-of the polling. The floor is the other end of the same range: a settle
-that confirms green on its first poll and merges adds only seconds to the
-Box's runtime. The one-shot wave has no refill loop to stop — its batch is
+of the polling. Those figures hold when no fix pass follows a force-push. A
+force-pushed head that goes red gets a fix pass from the same
+`MAX_FIX_ATTEMPTS` budget, and a head that pass turns green re-enters the
+merge path with fresh rebase and conflict-resolve budgets, so the
+rebase-driven windows and conflict-resolve Boxes can recur once per such fix
+pass, and the true worst case sits above the stated ceiling. The floor is the
+other end of the same range: a settle that confirms green on its first poll
+and merges adds only seconds to the Box's runtime. The one-shot wave has no refill loop to stop — its batch is
 fixed up front — so there the first signal simply means launch nothing
 further from that batch while whatever is already running finishes and
 settles. The launcher prints a line when a drain begins, so an operator can
@@ -8304,7 +8309,9 @@ not the Box runtime alone and not the Box runtime plus a single
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
 windows — seven of them, about seven hours of polling, or eight with the
 stale-base preflight enabled — plus the runtimes of up to three fix Boxes
-and up to three conflict-resolve Boxes, or four with that same preflight;
+and up to three conflict-resolve Boxes, or four with that same preflight
+(the true ceiling sits higher when a fix pass follows a red force-pushed
+head, which spends the rebase budgets again);
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
 below even the floor, so leaving it at the default means `SIGKILL` lands

@@ -128,3 +128,35 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red force-pushed head gets a fix pass first
+
+Every force-push on the `immediate` landing path — the stale-base preflight
+rebase above, a clean rebase-retry, or an agent conflict-resolve Box — resets
+CI, and the host re-waits on the new head. As written above, a re-wait that
+did not go green blocked the merge and settled the issue `Failed`. In practice
+that threw away fixable work: a conflict-resolve force-push went red on one
+check and the issue settled `landing-failed` 13 seconds later, with no fix
+pass ever dispatched.
+
+A red post-force-push re-wait now dispatches the existing red-CI fix pass
+instead of settling `Failed`. It draws on the same `MAX_FIX_ATTEMPTS` budget as
+the pre-merge red-CI loop, so passes spent before the merge count against it:
+the allowance is one per issue, not one per force-push, which keeps a head
+that keeps breaking after each rebase from looping indefinitely. A head the
+fix pass turns green re-enters the merge path exactly as a first-green head
+does, with fresh rebase-retry and conflict-resolve budgets.
+
+Consequences: a re-wait that times out, and a conflict-resolve dispatch or
+outbox relay that itself fails, still end `Failed` with `landing-failed` and
+no fix pass — there is no red head to fix. When the shared budget is
+exhausted — before the re-wait, or after a fix pass left the force-pushed head
+red — the issue ends the same way, and the failure comment names the attempts
+used ("N of M fix attempt(s) used (K on the force-pushed head)"). Covered by
+`TestSelfHeal_ForcePushedRed_FixPassThenMerges`,
+`TestSelfHeal_PreflightStaleBaseRed_FixPassThenMerges`,
+`TestSelfHeal_ForcePushedRed_SharedBudgetExhausted_EndsFailed`,
+`TestSelfHeal_ForcePushedRed_StillRedAfterFixPass_EndsLandingFailed`,
+`TestSelfHeal_ForcePushNonRedFailures_NoFixPass`, and
+`TestSelfHeal_ForcePushRelayFailure_NoFixPass` in
+`internal/settle/ready_test.go`.
