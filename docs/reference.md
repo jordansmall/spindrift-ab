@@ -6640,7 +6640,9 @@ launcher re-waits for green on the new head — once per
 `PREFLIGHT_STALE_BASE` is on. The ceiling is therefore
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` poll windows: seven at the
 defaults, about seven hours of polling alone, or eight windows with the
-stale-base preflight enabled. Each red gate and each conflict a rebase
+stale-base preflight enabled. A fix pass that turns a red force-pushed head
+green re-enters the merge path with fresh rebase budgets, so each such pass
+can add its own force-push windows on top. Each red gate and each conflict a rebase
 cannot resolve also dispatches its own Box — up to three fix Boxes and up
 to three conflict-resolve Boxes, or four with the stale-base preflight
 enabled, which keeps its own retry budget — and those runtimes land on top
@@ -8303,7 +8305,8 @@ not the Box runtime alone and not the Box runtime plus a single
 `MERGE_POLL_TIMEOUT`. At the defaults that ceiling is
 `MAX_FIX_ATTEMPTS + MAX_REBASE_ATTEMPTS + 1` fresh `MERGE_POLL_TIMEOUT`
 windows — seven of them, about seven hours of polling, or eight with the
-stale-base preflight enabled — plus the runtimes of up to three fix Boxes
+stale-base preflight enabled, plus the force-push windows of any fix pass
+that turns a red force-pushed head green — plus the runtimes of up to three fix Boxes
 and up to three conflict-resolve Boxes, or four with that same preflight;
 see the signalled-stop drain under [Dispatch exit codes](#dispatch-exit-codes)
 for the breakdown. systemd's own default `TimeoutStopSec` is `90` seconds, far
