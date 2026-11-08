@@ -29,6 +29,11 @@ never re-confirms green, so there is no green PR at the current head — the
 same "never produced a green PR" condition `InProgress→Failed` already covers
 for a box crash or exhausted fix passes, just discovered later, mid-landing.
 Still the same edge, still named inline at its call site — no new edge.
+(Amended by issue #5053: a red post-force-push re-wait no longer takes the
+edge outright — `selfHealGate` first runs the red-CI fix pass on the shared
+`MAX_FIX_ATTEMPTS` budget, and fires `InProgress→Failed` only once that
+budget is spent. A re-wait timeout or a failed conflict-resolve dispatch or
+outbox relay still takes it directly.)
 
 Re-open trigger: a transition added outside the claim or settle paths, or a
 conditional edge — one whose legality depends on runtime state rather than
