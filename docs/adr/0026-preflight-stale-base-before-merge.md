@@ -128,3 +128,26 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red force-pushed head gets a fix pass
+
+The Decision above says a CI failure on the rebased tree "demotes the same way
+a genuine red gate result always has". In practice a red re-wait after any
+force-push (the preflight rebase, a reactive rebase-retry, or an agent
+conflict-resolve Box) settled the issue `Failed` with `landing-failed` on the
+spot, without the fix pass a red gate result normally gets. Parent issue #5053
+lost a landing this way.
+
+A red re-wait now dispatches the same fix pass the pre-merge red-CI loop uses,
+and draws on the same `MAX_FIX_ATTEMPTS` counter, so the budget is shared
+rather than refilled per force-push. A head the fix pass turns green re-enters
+the merge path like any first-green head. The issue still settles
+`landing-failed` when the budget runs out (the failure comment names the fix
+passes spent on the force-pushed head and how much of the shared budget is
+used, "N fix pass(es) spent on the force-pushed head; M of K shared fix
+pass(es) used"), when a re-wait times out (the comment names them too when
+the gate times out on a head a fix pass produced), or when the conflict-resolve
+dispatch or its outbox relay fails. A timeout, a dispatch failure, and a relay
+failure are not a red head, so none gets a fix pass of its own. A token or USD
+budget cap (`MAX_BUDGET_TOKENS`, `MAX_BUDGET_USD`) hit before the fix pass
+settles `budget-exhausted` instead, as it does for any other fix pass.
