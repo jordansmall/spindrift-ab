@@ -871,14 +871,19 @@ func TestSelfUpdateInPlaceIdlePoolHandsOffAtOnce(t *testing.T) {
 	done := make(chan Halt, 1)
 	go func() { done <- Loop(context.Background(), cfg, r, newTestEmitter(buf), clk) }()
 
-	// Both children have exited with no work and both slots sleep: the pool is
-	// idle, and only the parked clock could end that sleep.
+	// Every child has exited with no work and both slots sleep: the pool is
+	// idle, and only the parked clock could end that sleep. The second slot
+	// parks without a child when the first one's no-work exit reaches the
+	// scheduler before that slot reaches startChild, so the idle run count is
+	// one or two.
 	deadline := time.Now().Add(5 * time.Second)
+	var idleRuns int
 	for {
 		clk.mu.Lock()
 		asleep := len(clk.sleepers)
 		clk.mu.Unlock()
-		if asleep == 2 && r.runCount() == 2 {
+		idleRuns = r.runCount()
+		if asleep == 2 && idleRuns >= 1 {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -905,8 +910,8 @@ func TestSelfUpdateInPlaceIdlePoolHandsOffAtOnce(t *testing.T) {
 	if len(h.Handoff.Slots) != 0 {
 		t.Errorf("handoff slots = %+v, want none: no child was running", h.Handoff.Slots)
 	}
-	if n := r.runCount(); n != 2 {
-		t.Errorf("run calls = %d, want 2: a woken slot must not start a child", n)
+	if n := r.runCount(); n != idleRuns {
+		t.Errorf("run calls = %d, want %d: a woken slot must not start a child", n, idleRuns)
 	}
 	events := decodeEvents(t, buf)
 	if n := countEvents(eventNames(events), "halt"); n != 0 {
