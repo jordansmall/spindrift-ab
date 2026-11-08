@@ -128,3 +128,26 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red post-force-push head gets the fix pass
+
+"A CI failure on that rebased tree now demotes the same way a genuine red
+gate result always has" no longer holds as written: a genuinely red re-wait
+after a force-push (the preflight rebase here, the rebase-retry, or the
+conflict-resolve Box) now runs a host-side fix pass instead of settling
+`landing-failed` at once. Parent #5053 landed red on `flakemodule-equivalence`
+after a conflict-resolve force-push and settled `landing-failed` 13s later
+with no fix pass, though a pre-merge red gate would have had one.
+
+The fix pass draws on the same `MAX_FIX_ATTEMPTS` counter as the pre-merge
+red-CI loop, shared across the whole landing rather than refreshed per
+force-push; a head the fix turns green re-enters the green arm like a
+first-green head. The issue still ends `Failed` when the shared budget is
+spent on the force-pushed head (the comment names the attempts it consumed),
+when the re-wait times out, or when the conflict-resolve dispatch or its relay
+fails; those last two get no fix pass. Pinned by
+`TestSelfHeal_ForcePushRed_FixPassTurnsGreenAndMerges`,
+`TestSelfHeal_ForcePushRed_SharedBudgetExhaustedByPreMergeLoop`,
+`TestSelfHeal_ForcePushRed_FixPassStillRed_NamesAttempts`, and
+`TestSelfHeal_ForcePushNotRed_NeverDrawsFixPass` in
+`cmd/launcher/internal/settle/ready_test.go`.
