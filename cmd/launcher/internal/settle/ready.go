@@ -24,7 +24,9 @@ var errAbandoned = errors.New("settle: abandoned (terminated, or a live run owns
 // errLandingNeverGreen marks a force-pushed head that never reached green. A
 // merge failure on an already-green PR leaves the issue agent-complete (ADR
 // 0012); here no green PR exists at the current head, so selfHeal demotes to
-// agent-failed instead (issue #758).
+// agent-failed instead (issue #758). A genuine red re-wait is errForcePushedRed
+// and gets fix passes first; only a timeout, a conflict-resolve dispatch or
+// relay failure, or an exhausted shared fix budget ends here.
 var errLandingNeverGreen = errors.New("settle: force-pushed head never went green")
 
 // errForcePushedRed refines errLandingNeverGreen: the post-force-push re-wait
@@ -42,7 +44,10 @@ func (e forcePushedRedError) Unwrap() []error { return []error{e.error, errForce
 // MaxFixAttempts times, then applies the merge mode. It swaps agent-complete
 // only once the landing path settles (issue #757). A merge failure on a
 // still-green PR stays agent-complete (ADR 0012), but a force-pushed head that
-// never re-confirms green demotes to agent-failed instead (issue #758).
+// never re-confirms green demotes to agent-failed instead (issue #758). A head
+// whose re-wait ends genuine red gets fix passes first, on the same
+// MaxFixAttempts budget; a timeout, a conflict-resolve dispatch or relay
+// failure, or an exhausted budget demotes.
 func (s *Settle) selfHeal(d dispatch.Dispatcher, num string, gen uint64, pr string) (landingResult, string) {
 	return s.selfHealGate(d, num, gen, pr, false)
 }
@@ -492,10 +497,11 @@ func (s *Settle) tuningHold(num string) (bool, error) {
 // #3523, #4879) and for the Unclaimed case. A returned merge failure settles
 // Complete with ReasonMergeBlocked (ADR 0012), except errAbandoned, which
 // commits nothing, and selfHealGate's errLandingNeverGreen, which settles
-// Failed. A nil d makes a rebase conflict immediately non-retriable, since
-// nothing can dispatch a conflict resolution. On a nil error the returned
-// string is the reason class of the landing, decided here so the mode switch
-// is the only one.
+// Failed (a timed-out or unfixable force-pushed head; a red one first gets fix
+// passes, see errForcePushedRed). A nil d makes a rebase conflict immediately
+// non-retriable, since nothing can dispatch a conflict resolution. On a nil
+// error the returned string is the reason class of the landing, decided here so
+// the mode switch is the only one.
 func (s *Settle) applyMergeMode(num string, gen uint64, pr string, d dispatch.Dispatcher) (string, error) {
 	switch s.cfg.MergeMode {
 	case "immediate":
