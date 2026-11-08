@@ -128,3 +128,13 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red post-force-push head gets a fix pass
+
+When the CI re-wait after a force-push (this preflight's rebase, rebase-retry,
+or an agent conflict-resolve box) ends red, `immediate` Landing now dispatches
+a fix pass from the shared `MAX_FIX_ATTEMPTS` budget instead of settling
+`Failed` at once, as [ADR 0012](0012-merge-mode-and-agent-complete-decoupling.md)
+and [ADR 0017](0017-lifecycle-stays-call-site-transitions.md) first
+described. A re-wait timeout, or a conflict-resolve dispatch or outbox relay
+that fails, still settles `Failed`.
