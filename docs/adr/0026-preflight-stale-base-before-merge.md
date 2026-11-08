@@ -128,3 +128,23 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment: a red force-pushed head gets the fix pass before it fails
+
+The Decision's "demotes the same way a genuine red gate result always has" was
+not what shipped: a red re-wait after any `immediate` force-push — a clean
+rebase-retry, this preflight rebase, or an agent conflict-resolve Box —
+settled `Failed` (`landing-failed`) on the spot, with no fix pass. Parent
+issue #5053 landed this way: a conflict-resolve force-push went red on
+`flakemodule-equivalence` and failed 13 seconds later.
+
+Now a red post-force-push re-wait dispatches the existing red-CI fix pass,
+drawing on the same `MAX_FIX_ATTEMPTS` budget as the pre-merge loop rather than
+a fresh allowance per force-push. A head the fix pass turns green re-enters the
+merge path exactly as a first-green head does, rebase-retry and
+conflict-resolve budgets included. The issue still ends `Failed` with
+`landing-failed` when the fix budget is exhausted, when the re-wait times out
+(no red result to fix), or when the conflict-resolve dispatch or its outbox
+relay fails; the failure comment names the fix passes the head consumed and
+the budget. This supersedes the Decision's red-tree sentence above and ADR
+0012's "ending red" demotion.
