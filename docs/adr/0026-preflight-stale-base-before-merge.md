@@ -128,3 +128,26 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red post-force-push head gets a fix pass
+
+Until now, a post-force-push CI re-wait that ended red, after a stale-base
+preflight rebase, a clean rebase-retry, or a conflict-resolve Box, settled
+the issue `Failed` with `landing-failed` on the spot. A conflict resolution
+that merely broke one check was thrown away with no chance to repair it.
+
+A red re-wait now returns `errForcePushRed`, which sends `selfHealGate`
+straight into its red-CI fix arm. The fix pass draws from the same
+`MAX_FIX_ATTEMPTS` budget the pre-merge red loop uses, so a force-push never
+grants a fresh allowance, and a head the fix pass turns green re-enters the
+merge path like any first-green head, with this ADR's preflight and the
+rebase-retry and conflict-resolve budgets applying again. Once the budget is
+spent on a force-pushed head the issue still ends `Failed` with
+`landing-failed`, and the comment names how many fix passes were drawn
+from the shared budget, pre-merge ones included. A re-wait timeout, or a
+failed conflict-resolve dispatch or relay, still settles `Failed` at once with no fix pass: there is no red head to fix
+(`TestSelfHeal_ForcePushRed_FixPassThenMerged`,
+`TestSelfHeal_ForcePushRed_BudgetExhausted_LandingFailed`,
+`TestSelfHeal_ForcePushNotRed_NoFixPass`,
+`TestSelfHeal_ForcePushRed_SharesFixBudget` in
+`internal/settle/ready_test.go`).
