@@ -128,3 +128,19 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5053): a red force-pushed head gets the fix pass before `Failed`
+
+The stale-base preflight rebase, like the reactive rebase-retry and the agent
+conflict-resolve box, force-pushes the head, and the post-force-push CI
+re-wait can end red. That no longer settles `Failed` / `landing-failed` on the
+spot: the host dispatches the same red-CI fix pass the pre-merge loop uses,
+drawing from the same `MAX_FIX_ATTEMPTS` budget (shared, not a fresh allowance
+per force-push). A head the fix pass turns green re-enters the merge path as a
+first-green head does, rebase-retry and conflict-resolve budgets included.
+The issue still ends `Failed` when that budget is exhausted, when the re-wait
+times out, or when the conflict-resolve dispatch or its outbox relay fails.
+When it is the `MAX_FIX_ATTEMPTS` budget that runs out, the `landing-failed`
+comment names how many fix attempts the force-pushed head consumed and how
+many of the budget were used; the token/USD cap (`MaxBudgetTokens` /
+`MaxBudgetUSD`) instead settles `budget-exhausted` without that count.
