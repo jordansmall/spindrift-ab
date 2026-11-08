@@ -73,9 +73,10 @@ and reports `behind_by > 0`.
 re-runs the merge gate's CI wait — forcing the combined tree (this PR's
 changes replayed onto the sibling's already-merged changes) through CI
 before the merge can complete. A CI failure on that rebased tree now demotes
-the same way a genuine red gate result always has; a clean rebase proceeds
-to merge as before. The preflight rebase draws its own attempt budget off
-`MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
+the same way a genuine red gate result always has (amended by issue #5095: a
+red result now gets the fix pass first; see the amendment below); a clean
+rebase proceeds to merge as before. The preflight rebase draws its own attempt
+budget off `MAX_REBASE_ATTEMPTS` rather than sharing counters with the reactive
 conflict-retry loop — the two are independent triggers, and charging one
 against the other's budget would let a stale-base retry (or vice versa)
 exhaust an allowance the real conflict path still needed. `0` still means
@@ -128,3 +129,27 @@ combined tree) instead of just relocating it to a human.
   `TestMergeImmediate_StaleBaseConflictResolvesViaDispatcher`,
   `TestMergeImmediate_StaleBaseConflictResolveFailureBlocksMerge`,
   `TestMergeImmediate_StaleBaseConflictResolveRewaitFailsBlocksMerge`).
+
+## Amendment (issue #5095): a red force-pushed head gets the fix pass
+
+The Decision above shipped with a red CI result on the rebased tree settling
+straight to `Failed` with `landing-failed`. That was too harsh for a head
+the agent never had a chance to repair: the force-push is what changed the
+tree, so a red re-wait there is a genuine red gate on a new head, not evidence
+the work was never green. The same holds for the other two `immediate` force-pushes —
+rebase-retry after a merge conflict and the agent conflict-resolve box.
+
+Now, when the post-force-push re-wait ends red, the host dispatches the
+existing red-CI fix pass. It draws from the same `MAX_FIX_ATTEMPTS` budget the
+pre-merge red-CI loop uses — shared, not a fresh allowance per force-push, so
+repeated force-pushes cannot multiply the fix passes a single issue gets. A head
+the fix pass turns green re-enters the merge path exactly as a first-green head
+does, `MAX_REBASE_ATTEMPTS` and conflict-resolve budgets included. The issue
+still ends `Failed` with `landing-failed` when the fix budget is exhausted,
+when the re-wait times out, or when the conflict-resolve dispatch or its outbox
+relay itself fails; the failure comment names how many fix attempts the
+force-pushed head(s) consumed of the shared budget of M, counted from the
+first force-push red. A fix pass that exits non-zero, makes no commit, or hits
+the token/USD budget cap settles with that exit's own reason (`fix-failed`,
+`fix-no-op`, `budget-exhausted`), as in the pre-merge loop; only exhausting
+`MAX_FIX_ATTEMPTS` settles `landing-failed`.
